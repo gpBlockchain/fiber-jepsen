@@ -3,7 +3,8 @@
   image from the devnet snapshot, so setup only wipes the Fiber store and starts
   the daemon. Implements Kill (SIGKILL, so crashes can land mid-write) and Pause
   (SIGSTOP/SIGCONT) for jepsen.nemesis.combined."
-  (:require [jepsen [control :as c]
+  (:require [clojure.string :as str]
+            [jepsen [control :as c]
                     [db :as db]
                     [util :refer [await-fn]]]
             [jepsen.control.util :as cu]
@@ -13,6 +14,20 @@
 (def binary "/usr/local/bin/fnn")
 (def logfile "/fiber/fnn.log")
 (def pidfile "/fiber/fnn.pid")
+(def faketime-file
+  "Clock offset for libfaketime, e.g. \"+30\" (seconds). Read on every clock call."
+  "/fiber/faketime")
+
+(defn faketime-env
+  "libfaketime environment for the :clock fault. Only the wall clock is faked:
+  monotonic clocks stay real so tokio timers keep working."
+  [test]
+  (when (some #{:clock} (:faults test))
+    (let [lib (str/trim (c/exec :sh :-c "ls /usr/lib/*/faketime/libfaketime.so.1 | head -n1"))]
+      {:LD_PRELOAD                   lib
+       :FAKETIME_TIMESTAMP_FILE      faketime-file
+       :FAKETIME_NO_CACHE            "1"
+       :FAKETIME_DONT_FAKE_MONOTONIC "1"})))
 
 (defn node-id
   "n1 -> \"1\""
@@ -30,9 +45,10 @@
       {:logfile logfile
        :pidfile pidfile
        :chdir   (node-dir node)
-       :env     {:FIBER_SECRET_KEY_PASSWORD (str "password" (node-id node))
-                 :RUST_LOG                  (:log-level test "info")
-                 :RUST_BACKTRACE            "1"}}
+       :env     (merge {:FIBER_SECRET_KEY_PASSWORD (str "password" (node-id node))
+                        :RUST_LOG                  (:log-level test "info")
+                        :RUST_BACKTRACE            "1"}
+                       (faketime-env test))}
       binary
       :-d (node-dir node))))
 
@@ -45,7 +61,8 @@
 (defrecord FiberDB []
   db/DB
   (setup! [_ test node]
-    (c/su (c/exec :rm :-rf (str (node-dir node) "/fiber/store") logfile pidfile))
+    (c/su (c/exec :rm :-rf (str (node-dir node) "/fiber/store") logfile pidfile)
+          (cu/write-file! "+0" faketime-file))
     (start-fnn! test node)
     (await-rpc! node))
 

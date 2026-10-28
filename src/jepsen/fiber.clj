@@ -12,19 +12,28 @@
             [jepsen.nemesis.combined :as nc]
             [jepsen.fiber [checker :as fiber-checker]
                           [client :as client]
-                          [db :as db]])
+                          [db :as db]
+                          [nemesis :as fiber-nemesis]])
   (:gen-class))
 
 (def supported-faults
   "Faults this suite can inject. Jepsen's :clock fault changes the host clock,
   which Docker containers share, so clock skew needs a per-process approach
   (libfaketime) instead."
-  #{:kill :pause :partition})
+  #{:kill :pause :partition
+    ; jepsen.fiber.nemesis
+    :term :ckb-partition :ckb-latency :latency :loss :clock})
 
 (defn pay-op
-  "A payment of 0.01-0.2 CKB. The client picks the destination."
-  []
-  {:f :pay, :value {:amount (* 1000000 (inc (rand-int 20)))}})
+  "A payment of 0.01-0.2 CKB. The client picks the destination. :workload picks
+  keysend, invoice (end to end, forwarded by the middle node) or a mix."
+  [opts]
+  (fn []
+    (let [mode (case (:workload opts)
+                 :invoice :invoice
+                 :mixed   (rand-nth [:keysend :invoice])
+                 :keysend)]
+      {:f :pay, :value {:amount (* 1000000 (inc (rand-int 20))), :mode mode}})))
 
 (defn nemesis-package
   "Composes only the nemesis packages for the requested faults. The full
@@ -40,9 +49,10 @@
                 :pause     {:targets [:one]}
                 :partition {:targets [:one]}}]
     (nc/compose-packages
-      (cond-> []
-        (faults :partition)             (conj (nc/partition-package popts))
-        (some faults [:kill :pause])    (conj (nc/db-package popts))))))
+      (into (cond-> []
+              (faults :partition)             (conj (nc/partition-package popts))
+              (some faults [:kill :pause])    (conj (nc/db-package popts)))
+            (fiber-nemesis/packages (merge opts popts))))))
 
 (defn fiber-test
   [opts]
@@ -51,7 +61,7 @@
         pkg    (nemesis-package db opts)]
     (merge tests/noop-test
            opts
-           {:name                 (str "fiber-" (str/join "," (map name (sort faults))))
+           {:name                 (str "fiber-" (name (:workload opts)) "-" (str/join "," (map name (sort faults))))
             :os                   os/noop
             :db                   db
             :client               (client/client)
@@ -68,7 +78,7 @@
                                      :timeline   (timeline/html)
                                      :fiber      (fiber-checker/checker)})
             :generator            (gen/phases
-                                    (->> pay-op
+                                    (->> (pay-op opts)
                                          (gen/stagger (/ (:rate opts)))
                                          (gen/nemesis (:generator pkg))
                                          (gen/time-limit (:time-limit opts)))
@@ -80,7 +90,7 @@
                                     (gen/clients (gen/once {:f :read})))})))
 
 (def cli-opts
-  [[nil "--faults FAULTS" "Comma-separated faults to inject: kill, pause, partition."
+  [[nil "--faults FAULTS" "Comma-separated faults: kill, term, pause, partition, ckb-partition, ckb-latency, latency, loss, clock."
     :default  [:kill]
     :parse-fn (fn [s] (mapv keyword (str/split s #",")))
     :validate [#(every? supported-faults %) (str "Must be a subset of " supported-faults)]]
@@ -97,7 +107,43 @@
     :default  "info"]
    [nil "--kill-targets TARGETS" "Comma-separated kill targets: one, all."
     :default  [:one :all]
-    :parse-fn (fn [s] (mapv keyword (str/split s #",")))]])
+    :parse-fn (fn [s] (mapv keyword (str/split s #",")))]
+   [nil "--workload MODE" "Payments: keysend, invoice (n1 <-> n3 via n2) or mixed."
+    :default  :keysend
+    :parse-fn keyword
+    :validate [#{:keysend :invoice :mixed} "Must be keysend, invoice or mixed"]]
+   [nil "--invoice-currency CUR" "Invoice currency: Fibd (devnet), Fibt, Fibb."
+    :default  "Fibd"]
+   [nil "--term-timeout SECONDS" "Seconds fnn gets to exit after SIGTERM before SIGKILL."
+    :default  30
+    :parse-fn parse-long]
+   [nil "--term-targets TARGETS" "Comma-separated term targets: one, all."
+    :default  [:one]
+    :parse-fn (fn [s] (mapv keyword (str/split s #",")))]
+   [nil "--ckb-targets TARGETS" "Nodes cut off from / slowed to CKB: one, all."
+    :default  [:one :all]
+    :parse-fn (fn [s] (mapv keyword (str/split s #",")))]
+   [nil "--ckb-delay MS" "ckb-latency: added delay on fnn -> chain traffic."
+    :default  3000
+    :parse-fn parse-long]
+   [nil "--ckb-jitter MS" "ckb-latency: jitter."
+    :default  1000
+    :parse-fn parse-long]
+   [nil "--net-delay MS" "latency: added delay on fnn -> fnn traffic."
+    :default  500
+    :parse-fn parse-long]
+   [nil "--net-jitter MS" "latency: jitter."
+    :default  200
+    :parse-fn parse-long]
+   [nil "--net-reorder PCT" "latency: percent of packets sent immediately (reordered)."
+    :default  10
+    :parse-fn parse-long]
+   [nil "--net-loss PCT" "loss: percent of fnn -> fnn packets dropped."
+    :default  10
+    :parse-fn parse-long]
+   [nil "--clock-skew-max SECONDS" "clock: max absolute wall-clock offset per fnn process."
+    :default  60
+    :parse-fn parse-long]])
 
 (defn -main
   [& args]

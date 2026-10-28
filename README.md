@@ -2,7 +2,7 @@
 
 [Jepsen](https://github.com/jepsen-io/jepsen) tests for [Fiber](https://github.com/nervosnetwork/fiber), the payment channel network on Nervos CKB.
 
-Fiber's unit tests drive nodes in-process, and its integration tests replay scripted scenarios. This suite does something different. It runs real `fnn` binaries on separate hosts and sends concurrent payments through them while injecting faults: crashes, pauses and network partitions. It then checks invariants over the final state of every node.
+Fiber's unit tests drive nodes in-process, and its integration tests replay scripted scenarios. This suite does something different. It runs real `fnn` binaries on separate hosts and sends concurrent payments through them while injecting faults: crashes, graceful restarts, pauses, network partitions, latency and loss, CKB disconnects and delays, and clock skew. It then checks invariants over the final state of every node.
 
 **Status: early work in progress.** The first milestone is one end-to-end run (payments, `kill -9`, invariant check) against a CKB devnet.
 
@@ -21,10 +21,35 @@ After all faults are healed and the network has had time to converge:
 | Fault | How |
 |---|---|
 | `kill` | `SIGKILL` on one node or all nodes, then restart. A crash can land in the middle of a write. |
+| `term` | `SIGTERM` on one node (`--term-targets one,all`), wait up to `--term-timeout` (30 s) for fnn to exit, `SIGKILL` if it doesn't, then restart. A separate case from `kill`: the checker fails the run if any graceful shutdown timed out and reports exit times under `:term-exits`. |
 | `pause` | `SIGSTOP` / `SIGCONT` on one node. The peer stays connected but gets no replies. |
 | `partition` | iptables drops traffic between one node and the others. |
+| `ckb-partition` | iptables drops traffic between one or all fnn nodes (`--ckb-targets`) and the CKB `chain` container. CKB is treated as an external dependency. |
+| `ckb-latency` | tc netem delay + jitter (`--ckb-delay 3000 --ckb-jitter 1000`, ms) on fnn -> chain traffic only. |
+| `latency` | tc netem delay, jitter and reorder (`--net-delay 500 --net-jitter 200 --net-reorder 10`) on fnn -> fnn traffic of one or all nodes. |
+| `loss` | tc netem packet loss (`--net-loss 10`, %) on fnn -> fnn traffic. |
+| `clock` | Per-process wall-clock skew with libfaketime, up to +/-`--clock-skew-max` (60 s). fnn is started with `LD_PRELOAD=libfaketime` only when `clock` is enabled; the offset lives in `/fiber/faketime` and is re-read on every call, so it changes without a restart. Monotonic clocks are not faked. |
 
-Planned: **clock skew**. Fiber expires TLCs by wall-clock timestamp (off-chain checks use each node's local clock; on-chain claims use timestamp `since`), rather than by block height as in Lightning. Jepsen's built-in clock nemesis changes the host clock, which Docker containers share, so skew will be injected per process with libfaketime.
+The tc faults install one `prio` qdisc per node with a netem band for chain traffic and one for peer traffic, so CKB and peer shaping can overlap. The node image already has iproute2, iptables and faketime, and runs with `NET_ADMIN`.
+
+## Workloads
+
+| `--workload` | Payments |
+|---|---|
+| `keysend` (default) | keysend from each node to a random other node. |
+| `invoice` | the receiver creates an invoice (`new_invoice`, currency `--invoice-currency`, default `Fibd`), the payer pays it with `send_payment {invoice}`. n1 pays n3 and n3 pays n1, so every payment is forwarded by n2 in both directions. |
+| `mixed` | each payment picks keysend or invoice at random. |
+
+For invoice payments the final read also fetches the receiver's invoice (`get_invoice`), and the checker reports `:invoice-mismatches`: a `Success` payment whose invoice isn't `Paid`, or a `Failed` payment whose invoice is.
+
+The test matrix (topology x workload x fault -> invariants) is in [docs/chaos-plan.md](docs/chaos-plan.md).
+
+```bash
+scripts/run.sh --time-limit 120 --faults term --workload invoice
+scripts/run.sh --time-limit 120 --faults ckb-partition,ckb-latency --ckb-targets all
+scripts/run.sh --time-limit 120 --faults latency,loss --workload mixed --net-loss 20
+scripts/run.sh --time-limit 120 --faults clock --clock-skew-max 300
+```
 
 ## Layout
 
@@ -33,7 +58,8 @@ Planned: **clock skew**. Fiber expires TLCs by wall-clock timestamp (off-chain c
 - `src/jepsen/fiber/`:
   - `db.clj` (process lifecycle)
   - `topology.clj` (opens channels n1 - n2 - n3)
-  - `client.clj` (keysend payments, final read)
+  - `client.clj` (keysend and invoice payments, final read)
+  - `nemesis.clj` (term, CKB, tc netem and clock faults)
   - `checker.clj` (invariants)
 
 ## Running

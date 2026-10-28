@@ -122,13 +122,32 @@
                 ; Histories recorded before probes carried :amount used 1000000.
                 no-funds?  #(and (some-> (:error %) (str/includes? "Insufficient balance"))
                                  (some-> (:sender-balance %) (< (or (:amount %) 1000000))))
+                ; Invoice payments: the payer's view and the receiver's invoice must agree.
+                ; Success must leave the invoice Paid; a Failed payment must not.
+                inv-bad    (vec (for [p (:payments read)
+                                      :when (contains? p :invoice-status)
+                                      :when (or (and (= "Success" (:status p))
+                                                     (not= "Paid" (:invoice-status p)))
+                                                (and (= "Failed" (:status p))
+                                                     (= "Paid" (:invoice-status p))))]
+                                  (select-keys p [:node :to :hash :status :invoice-status])))
+                ; :term faults: fnn should exit within --term-timeout of SIGTERM.
+                term-ops   (->> history
+                                (filter #(and (= :nemesis (:process %)) (= :term (:f %))
+                                              (map? (:value %))))
+                                (mapcat (comp vals :value)))
+                term-slow  (vec (filter #(false? (:exited? %)) term-ops))
                 probe-bad  (vec (remove #(or (= "Success" (:status %)) (no-funds? %)) probe))]
             {:valid?              (and (empty? channels) (empty? unfinished) (empty? flipped)
-                                       (empty? probe-bad))
+                                       (empty? probe-bad) (empty? inv-bad) (empty? term-slow))
              :channel-summary     (channel-summary (:channels read))
              :payments            (count (:payments read))
              :payments-ok         (count client-ok)
              :channel-problems    channels
              :unfinished-payments unfinished
              :success-flipped     flipped
-             :probe-failures      probe-bad}))))))
+             :probe-failures      probe-bad
+             :invoice-mismatches  inv-bad
+             :term-exits          {:count     (count (filter #(true? (:exited? %)) term-ops))
+                                   :max-ms    (some->> term-ops (keep :ms) seq (apply max))
+                                   :timed-out term-slow}}))))))
