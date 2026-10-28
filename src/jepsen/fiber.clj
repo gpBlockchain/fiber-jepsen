@@ -22,7 +22,7 @@
   (libfaketime) instead."
   #{:kill :pause :partition
     ; jepsen.fiber.nemesis
-    :term :ckb-partition :ckb-latency :latency :loss :clock})
+    :term :ckb-partition :ckb-latency :latency :loss :clock :disconnect})
 
 (defn pay-op
   "A payment of 0.01-0.2 CKB. The client picks the destination. :workload picks
@@ -90,7 +90,7 @@
                                     (gen/clients (gen/once {:f :read})))})))
 
 (def cli-opts
-  [[nil "--faults FAULTS" "Comma-separated faults: kill, term, pause, partition, ckb-partition, ckb-latency, latency, loss, clock."
+  [[nil "--faults FAULTS" "Comma-separated faults: kill, term, pause, partition, ckb-partition, ckb-latency, latency, loss, clock, disconnect."
     :default  [:kill]
     :parse-fn (fn [s] (mapv keyword (str/split s #",")))
     :validate [#(every? supported-faults %) (str "Must be a subset of " supported-faults)]]
@@ -141,6 +141,13 @@
    [nil "--net-loss PCT" "loss: percent of fnn -> fnn packets dropped."
     :default  10
     :parse-fn parse-long]
+   [nil "--disconnect-targets TARGETS" "disconnect: drop one or all peers of the chosen node."
+    :default  [:one :all]
+    :parse-fn (fn [s] (mapv keyword (str/split s #",")))]
+   [nil "--disconnect-reconnect MODE" "disconnect heal: rpc (connect_peer) or auto (leave it to fnn)."
+    :default  :rpc
+    :parse-fn keyword
+    :validate [#{:rpc :auto} "Must be rpc or auto"]]
    [nil "--clock-skew-max SECONDS" "clock: max absolute wall-clock offset per fnn process."
     :default  60
     :parse-fn parse-long]])

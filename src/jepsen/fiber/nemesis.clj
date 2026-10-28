@@ -9,6 +9,9 @@
   - :ckb-latency   tc netem delay + jitter on fnn -> chain traffic only.
   - :latency       tc netem delay, jitter and reorder on fnn <-> fnn traffic.
   - :loss          tc netem packet loss on fnn <-> fnn traffic.
+  - :disconnect    calls fnn's disconnect_peer RPC on one node for one or all of
+                   its connected peers; healing reconnects with connect_peer
+                   (--disconnect-reconnect rpc, default) or leaves it to fnn (auto).
   - :clock         per-process clock skew with libfaketime (fnn reads its offset
                    from a file on every call, so the skew changes without a restart).
 
@@ -23,6 +26,7 @@
                     [nemesis :as n]]
             [jepsen.control.util :as cu]
             [jepsen.fiber [db :as db]
+                          [rpc :as rpc]
                           [topology :as topology]]))
 
 (def chain-ip "10.77.0.10")
@@ -218,6 +222,68 @@
                             (seq peer) (conj {:name "net-shape", :start #{:latency :loss}
                                               :stop #{:net-heal} :color "#E9D8A0"}))}))))
 
+;; --------------------------------------------------------------- disconnect
+
+(defn- pubkey->node [test pk]
+  (some (fn [[n k]] (when (= k pk) n)) @(:pubkeys test)))
+
+(defn- disconnect!
+  "Picks a node and calls disconnect_peer for one or all of its peers."
+  [test]
+  (let [node  (rand-nth (vec (:nodes test)))
+        peers (mapv :pubkey (:peers (rpc/call node "list_peers")))
+        pks   (case (rand-nth (vec (:disconnect-targets test [:one :all])))
+                :all peers
+                (if (seq peers) [(rand-nth peers)] []))]
+    {:node  node
+     :peers (vec (for [pk pks]
+                   {:peer   (pubkey->node test pk)
+                    :result (try (rpc/call node "disconnect_peer" {:pubkey pk}) :ok
+                                 (catch Exception e (ex-message e)))}))}))
+
+(defn- reconnect!
+  "Reconnects every channel edge whose ends aren't peers any more, using
+  connect_peer from the opener with the acceptor's p2p address."
+  [test]
+  (vec (for [[a b] (topology/edges (:nodes test))
+             :let  [pk-b      (get @(:pubkeys test) b)
+                    connected (try (some #(= pk-b (:pubkey %))
+                                         (:peers (rpc/call a "list_peers")))
+                                   (catch Exception _ ::unknown))]
+             :when (not connected)]
+         {:from a, :to b
+          :result (try (rpc/call a "connect_peer"
+                                 {:address (topology/p2p-address b (rpc/call b "node_info"))})
+                       :ok
+                       (catch Exception e (ex-message e)))})))
+
+(defrecord DisconnectNemesis [mode]
+  n/Nemesis
+  (setup! [this _test] this)
+  (invoke! [_ test op]
+    (case (:f op)
+      :disconnect           (assoc op :value (try (disconnect! test)
+                                                  (catch Exception e (ex-message e))))
+      :disconnect-reconnect (assoc op :value (if (and (= :auto mode) (not (:force (:value op))))
+                                               :auto
+                                               (reconnect! test)))))
+  (teardown! [_ _test])
+  n/Reflection
+  (fs [_] #{:disconnect :disconnect-reconnect}))
+
+(defn disconnect-package
+  [opts]
+  (when ((:faults opts) :disconnect)
+    (let [mode (:disconnect-reconnect opts :rpc)]
+      {:nemesis         (DisconnectNemesis. mode)
+       :generator       (->> (gen/flip-flop (gen/repeat {:type :info, :f :disconnect})
+                                            (gen/repeat {:type :info, :f :disconnect-reconnect}))
+                             (gen/stagger (:interval opts)))
+       ; Always reconnect via RPC at the end so the probe isn't blocked on auto-reconnect.
+       :final-generator {:type :info, :f :disconnect-reconnect, :value {:force true}}
+       :perf            #{{:name "disconnect", :start #{:disconnect}
+                           :stop #{:disconnect-reconnect} :color "#E9C0A0"}}})))
+
 ;; -------------------------------------------------------------------- clock
 
 (defn- write-offset! [secs]
@@ -256,4 +322,5 @@
   (remove nil? [(term-package opts)
                 (ckb-partition-package opts)
                 (shape-package opts)
+                (disconnect-package opts)
                 (clock-package opts)]))

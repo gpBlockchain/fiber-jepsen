@@ -28,6 +28,7 @@ After all faults are healed and the network has had time to converge:
 | `ckb-latency` | tc netem delay + jitter (`--ckb-delay 3000 --ckb-jitter 1000`, ms) on fnn -> chain traffic only. |
 | `latency` | tc netem delay, jitter and reorder (`--net-delay 500 --net-jitter 200 --net-reorder 10`) on fnn -> fnn traffic of one or all nodes. |
 | `loss` | tc netem packet loss (`--net-loss 10`, %) on fnn -> fnn traffic. |
+| `disconnect` | fnn's own `disconnect_peer {pubkey}` RPC on a random node, for one or all of its peers (`--disconnect-targets one,all`). Heal re-dials each channel edge that lost its peer with `connect_peer {address}` (`--disconnect-reconnect rpc`, default; the RPC docs don't promise auto-reconnect) or leaves it to fnn (`auto`). The final heal always reconnects via RPC. Lower `--nemesis-interval` for rapid disconnect cycles. |
 | `clock` | Per-process wall-clock skew with libfaketime, up to +/-`--clock-skew-max` (60 s). fnn is started with `LD_PRELOAD=libfaketime` only when `clock` is enabled; the offset lives in `/fiber/faketime` and is re-read on every call, so it changes without a restart. Monotonic clocks are not faked. |
 
 The tc faults install one `prio` qdisc per node with a netem band for chain traffic and one for peer traffic, so CKB and peer shaping can overlap. The node image already has iproute2, iptables and faketime, and runs with `NET_ADMIN`.
@@ -48,6 +49,7 @@ The test matrix (topology x workload x fault -> invariants) is in [docs/chaos-pl
 scripts/run.sh --time-limit 120 --faults term --workload invoice
 scripts/run.sh --time-limit 120 --faults ckb-partition,ckb-latency --ckb-targets all
 scripts/run.sh --time-limit 120 --faults latency,loss --workload mixed --net-loss 20
+scripts/run.sh --time-limit 120 --faults disconnect --nemesis-interval 2 --workload invoice
 scripts/run.sh --time-limit 120 --faults clock --clock-skew-max 300
 ```
 

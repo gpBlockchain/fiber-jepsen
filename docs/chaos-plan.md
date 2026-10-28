@@ -20,6 +20,7 @@ mindmap
     注什么故障
       进程 kill -9 / kill / 暂停
       节点间 分区 / 延迟 / 丢包
+      RPC 主动断开 disconnect_peer
       CKB 断连 / 延迟
       时钟偏移
     怎么判对错
@@ -60,6 +61,7 @@ mindmap
 | `loss` | tc netem 丢包 | 节点间流量 |
 | `ckb-partition` | iptables 断开 fnn 与 CKB chain 容器 | 一个或全部节点 |
 | `ckb-latency` | tc netem 延迟 + 抖动，仅作用于 fnn→CKB | 一个或全部节点 |
+| `disconnect` | 调用 `disconnect_peer {pubkey}` 主动断开某节点的一个或全部 peer；恢复时用 `connect_peer {address}` 重连（`--disconnect-reconnect rpc`，默认）或等 fnn 自动重连（`auto`） | 一个节点的一个或全部 peer |
 | `clock` | libfaketime 按进程偏移墙上时钟（±`--clock-skew-max` 秒） | 一个或全部节点 |
 
 CKB 作为外部依赖，只注入断连和延迟两类。
@@ -92,7 +94,9 @@ CKB 作为外部依赖，只注入断连和延迟两类。
 | 11 | mixed | clock | 1-7 | `--faults clock --clock-skew-max 300` |
 | 12 | mixed | kill + term | 1-8 | `--faults kill,term --workload mixed` |
 | 13 | mixed | 全部网络类 | 1-7 | `--faults partition,latency,loss,ckb-partition,ckb-latency` |
-| 14 | mixed | 全部 | 1-8 | `--faults kill,term,pause,partition,latency,loss,ckb-partition,ckb-latency,clock` |
+| 14 | invoice | disconnect（高频，间隔 2 秒） | 1-7 | `--faults disconnect --nemesis-interval 2 --workload invoice` |
+| 15 | mixed | disconnect + 自动重连 | 1-7 | `--faults disconnect --disconnect-reconnect auto --workload mixed` |
+| 16 | mixed | 全部 | 1-8 | `--faults kill,term,pause,partition,latency,loss,ckb-partition,ckb-latency,clock,disconnect` |
 
 每个场景用 `scripts/repeat.sh N ...` 跑多轮，让故障落在不同阶段。
 
