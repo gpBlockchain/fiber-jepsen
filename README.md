@@ -66,7 +66,7 @@ scripts/run.sh --time-limit 120 --faults clock --clock-skew-max 300
 
 ## Running
 
-On Linux or WSL2, with Docker, a Fiber checkout, ckb 0.202.0 and ckb-cli in `PATH`:
+On Linux or WSL2, with Docker, a Fiber checkout, ckb 0.210.0 and ckb-cli 2.0.0 in `PATH`:
 
 ```bash
 # once: build fnn and the devnet snapshot
@@ -75,7 +75,8 @@ FNN_BIN=/path/to/fiber/target/release/fnn FIBER_SNAP=/path/to/a/clean/fiber/chec
   scripts/make-snapshot.sh
 
 # each run starts from a fresh devnet
-scripts/run.sh --time-limit 60 --faults kill
+# --kill-targets defaults to one,all (random); use one for a true single-node kill
+scripts/run.sh --time-limit 60 --faults kill --kill-targets one
 scripts/run.sh --time-limit 300 --faults kill,pause,partition --rate 10
 
 # several runs, one summary line each: verdict, post-heal probe, channel states, store directory
@@ -85,6 +86,50 @@ scripts/repeat.sh 4 --time-limit 60 --faults kill --kill-targets all --rate 20 -
 Results, including node logs and a timeline, are written to `store/`. To test another fnn build, copy it over `docker/build/bin/fnn`; `run.sh` rebuilds the node image.
 
 `scripts/stall_report.py store/<test>/<run> ...` lists, for each channel with a problem, whether it is stalled on an unbalanced revocation nonce ledger ([#1561](https://github.com/nervosnetwork/fiber/issues/1561)), closed, or fine but still holding TLCs. It needs channel debug logs: add `--log-level 'info,fnn::fiber::channel=debug'` to the run.
+
+### Scheduled chaos on a self-hosted runner
+
+`.github/workflows/chaos-scheduled.yml` runs the suite on a self-hosted Linux
+runner, daily at 02:00 Asia/Shanghai by default. It can also be started with
+**Run workflow**.
+
+Runner requirements:
+
+- Linux x86_64, Docker and `docker compose`, the runner user in the `docker` group;
+- at least 30 GiB free disk and 8 GiB RAM;
+- `git`, `curl`, `tar`, `python3` with PyYAML, `nc`, `ssh-keygen`;
+- Rust stable plus `cc`, `pkg-config`, OpenSSL and `clang` headers for the
+  `tests/deploy/udt-init` helper run by `make-snapshot.sh` (the workflow
+  installs Rust with rustup if `cargo` is missing, but not the system packages);
+- network access to GitHub, Docker Hub and `ghcr.io`.
+
+`ckb` and `ckb-cli` are downloaded by the workflow; they do not need to be
+installed on the host. fnn is built in a `rust:1.95.0-bookworm` container
+because the node image is Debian 12 and a host build on Ubuntu 24.04 would
+require a newer glibc.
+
+Labels default to `self-hosted`, `Linux`, `X64`. To use different labels, set
+the repository variable `CHAOS_RUNNER_LABELS` to a JSON array, for example
+`["self-hosted","Linux","X64","chaos"]`.
+
+Inputs:
+
+| Input | Default | Meaning |
+|---|---|---|
+| `fiber_ref` | `develop` | Fiber branch or tag to build |
+| `suite` | `full` | `smoke` (C01a), `matrix` (C01a-C10), `full` (matrix + 8 repeat rounds) |
+| `repeat_rounds` | `8` | nonce regression rounds for `full` |
+| `allow_known_failures` | `true` | do not fail on the known C04/C10 failures |
+
+`C04-partition` and `C10-combo` are allow-listed by default because the test's
+partition can exceed fnn's 30s peer-response timeout; unexpected failures fail
+the job. The workflow uploads `results/` and `store/` as artifacts, writes a
+summary to the job page, and removes the devnet/build artifacts afterwards.
+
+Scheduled workflows only run from the repository's default branch. If this
+workflow lives on a feature branch, use **Run workflow** on that branch or merge
+the workflow to the default branch. Because a self-hosted runner executes code
+from the repository, do not enable this workflow for untrusted pull requests.
 
 ### Mixed versions, and a tally over several batches
 

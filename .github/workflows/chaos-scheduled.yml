@@ -1,0 +1,146 @@
+name: fiber chaos
+
+# Scheduled chaos run on a self-hosted Linux runner.
+#
+# The runner needs Docker + docker compose, a user in the docker group, at
+# least 30 GiB free disk, 8 GiB RAM, and network access to GitHub, Docker Hub
+# and ghcr.io. ckb/ckb-cli are downloaded by this workflow; they do not need
+# to be installed on the host.
+#
+# To use custom runner labels, set the repository variable
+# CHAOS_RUNNER_LABELS to a JSON array, e.g. ["self-hosted","Linux","X64","chaos"].
+#
+# Scheduled workflows run from the repository's default branch. If this file
+# only exists on a feature branch, use "Run workflow" on that branch or merge
+# it to the default branch.
+
+on:
+  schedule:
+    # 02:00 Asia/Shanghai (18:00 UTC the previous day)
+    - cron: "0 18 * * *"
+  workflow_dispatch:
+    inputs:
+      fiber_ref:
+        description: Fiber branch or tag to build
+        required: true
+        default: develop
+      suite:
+        description: Which cases to run
+        type: choice
+        options: [full, matrix, smoke]
+        default: full
+      repeat_rounds:
+        description: Nonce regression rounds (full suite only)
+        required: true
+        default: "8"
+      allow_known_failures:
+        description: Do not fail the job on known C04/C10 failures
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fiber-chaos
+  cancel-in-progress: false
+
+jobs:
+  chaos:
+    runs-on: ${{ fromJSON(vars.CHAOS_RUNNER_LABELS || '["self-hosted","Linux","X64"]') }}
+    timeout-minutes: 180
+    env:
+      CKB_VERSION: "0.210.0"
+      CKB_CLI_VERSION: "2.0.0"
+      FIBER_REPO: https://github.com/nervosnetwork/fiber
+      FIBER_REF: ${{ github.event.inputs.fiber_ref || 'develop' }}
+      SUITE: ${{ github.event.inputs.suite || 'full' }}
+      REPEAT_ROUNDS: ${{ github.event.inputs.repeat_rounds || '8' }}
+      ALLOW_KNOWN_FAILURES: ${{ github.event.inputs.allow_known_failures || 'true' }}
+
+    steps:
+      - name: Check out fiber-jepsen
+        uses: actions/checkout@v4
+
+      - name: Clean previous devnet
+        run: |
+          docker compose -f docker/docker-compose.yml down -v --remove-orphans || true
+          rm -rf results store docker/build
+          mkdir -p results
+
+      - name: Check host prerequisites
+        run: scripts/ci/check-env.sh
+
+      - name: Install Rust for the snapshot helper
+        # make-snapshot.sh runs tests/deploy/udt-init with `cargo run`; the fnn
+        # build itself happens in the bookworm container below.
+        run: |
+          if ! command -v cargo >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --profile minimal
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            . "$HOME/.cargo/env"
+          fi
+          cargo --version
+
+      - name: Install ckb and ckb-cli
+        run: |
+          scripts/ci/install-ckb.sh "$RUNNER_TEMP/chaos-bin"
+          echo "$RUNNER_TEMP/chaos-bin" >> "$GITHUB_PATH"
+
+      - name: Clone Fiber
+        run: |
+          mkdir -p results
+          rm -rf "$RUNNER_TEMP/fiber-build" "$RUNNER_TEMP/fiber-snap"
+          git clone --depth 1 --branch "$FIBER_REF" "$FIBER_REPO" "$RUNNER_TEMP/fiber-build"
+          git clone --depth 1 --branch "$FIBER_REF" "$FIBER_REPO" "$RUNNER_TEMP/fiber-snap"
+          git -C "$RUNNER_TEMP/fiber-build" rev-parse HEAD > results/fiber-commit.txt
+          echo "fiber commit: $(cat results/fiber-commit.txt)"
+
+      - name: Build fnn in Debian bookworm
+        # The node image is Debian 12 (glibc 2.36); building on Ubuntu 24.04
+        # produces GLIBC_2.38/2.39 symbols that the node image cannot load.
+        run: |
+          mkdir -p "$RUNNER_TEMP/cargo-home"
+          docker run --rm \
+            -v "$RUNNER_TEMP/fiber-build:/src" \
+            -v "$RUNNER_TEMP/cargo-home:/cargo" \
+            -w /src \
+            -e CARGO_HOME=/cargo \
+            -e CARGO_TARGET_DIR=/src/target-bookworm \
+            rust:1.95.0-bookworm \
+            bash -c 'apt-get update -qq && apt-get install -y -qq clang libclang-dev >/dev/null && cargo build --release -p fiber-bin'
+          "$RUNNER_TEMP/fiber-build/target-bookworm/release/fnn" --version
+
+      - name: Create devnet snapshot
+        run: |
+          FNN_BIN="$RUNNER_TEMP/fiber-build/target-bookworm/release/fnn" \
+          FIBER_SNAP="$RUNNER_TEMP/fiber-snap" \
+            scripts/make-snapshot.sh
+
+      - name: Run chaos suite
+        run: scripts/ci/run-suite.sh "$SUITE" results
+
+      - name: Write summary
+        if: always()
+        run: |
+          python3 scripts/ci/summarize.py results > results/SUMMARY.md || true
+          cat results/SUMMARY.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fiber-chaos-${{ github.run_id }}
+          path: |
+            results
+            store
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Clean up
+        if: always()
+        run: |
+          docker compose -f docker/docker-compose.yml down -v --remove-orphans || true
+          rm -rf docker/build store
+          rm -rf "$RUNNER_TEMP/fiber-build" "$RUNNER_TEMP/fiber-snap" "$RUNNER_TEMP/cargo-home"

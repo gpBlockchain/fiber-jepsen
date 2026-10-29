@@ -5,3 +5,6 @@
 /target/
 /.lein-*
 /.nrepl-port
+# CI run output
+/results/
+__pycache__/
