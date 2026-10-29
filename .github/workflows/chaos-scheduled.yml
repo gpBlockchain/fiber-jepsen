@@ -37,6 +37,10 @@ on:
         description: Do not fail the job on known C04/C10 failures
         type: boolean
         default: true
+      upload_store:
+        description: Upload the full Jepsen store (large); default only failed cases
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -57,6 +61,7 @@ jobs:
       SUITE: ${{ github.event.inputs.suite || 'full' }}
       REPEAT_ROUNDS: ${{ github.event.inputs.repeat_rounds || '8' }}
       ALLOW_KNOWN_FAILURES: ${{ github.event.inputs.allow_known_failures || 'true' }}
+      UPLOAD_STORE: ${{ github.event.inputs.upload_store || 'false' }}
 
     steps:
       - name: Remove stale root-owned artifacts
@@ -146,15 +151,11 @@ jobs:
 
       - name: Archive results
         if: always()
+        env:
+          UPLOAD_STORE: ${{ github.event.inputs.upload_store || 'false' }}
         run: |
-          # Store paths contain ISO timestamps with colons; upload-artifact
-          # rejects those on Windows-compatible artifact backends.
-          mkdir -p results
-          if [ -d store ]; then
-            tar -czf chaos-results.tgz results store
-          else
-            tar -czf chaos-results.tgz results
-          fi
+          # Compact by default: all results, and only failed-case stores.
+          scripts/ci/pack-results.sh results chaos-results.tgz
 
       - name: Upload results
         if: always()

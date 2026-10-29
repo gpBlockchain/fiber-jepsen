@@ -120,11 +120,11 @@ Inputs:
 | `suite` | `full` | `smoke` (C01a), `matrix` (C01a-C10), `full` (matrix + 8 repeat rounds) |
 | `repeat_rounds` | `8` | nonce regression rounds for `full` |
 | `allow_known_failures` | `true` | do not fail on the known C04/C10 failures |
+| `upload_store` | `false` | upload the full Jepsen store; default uploads only failed-case stores |
 
 `C04-partition` and `C10-combo` are allow-listed by default because the test's
 partition can exceed fnn's 30s peer-response timeout; unexpected failures fail
-the job. The workflow uploads `results/` and `store/` as artifacts, writes a
-summary to the job page, and removes the devnet/build artifacts afterwards.
+the job. The workflow uploads a compact `chaos-results.tgz` (all `results/` plus failed-case stores by default), writes a summary to the job page, and removes the devnet/build artifacts afterwards.
 
 Scheduled workflows only run from the repository's default branch. If this
 workflow lives on a feature branch, use **Run workflow** on that branch or merge
