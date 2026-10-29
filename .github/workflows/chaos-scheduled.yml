@@ -106,7 +106,9 @@ jobs:
       - name: Clone Fiber
         run: |
           mkdir -p results
-          rm -rf "$RUNNER_TEMP/fiber-build" "$RUNNER_TEMP/fiber-snap"
+          # fiber-build/target-bookworm is written by the root build container.
+          docker run --rm -v "$RUNNER_TEMP:/w" debian:bookworm-slim \
+            sh -c 'rm -rf /w/fiber-build /w/fiber-snap /w/cargo-home' || true
           git clone --depth 1 --branch "$FIBER_REF" "$FIBER_REPO" "$RUNNER_TEMP/fiber-build"
           git clone --depth 1 --branch "$FIBER_REF" "$FIBER_REPO" "$RUNNER_TEMP/fiber-snap"
           git -C "$RUNNER_TEMP/fiber-build" rev-parse HEAD > results/fiber-commit.txt
@@ -170,4 +172,5 @@ jobs:
           docker run --rm -v "$PWD:/w" debian:bookworm-slim \
             sh -c 'rm -rf /w/store /w/docker/build' || true
           rm -rf results chaos-results.tgz
-          rm -rf "$RUNNER_TEMP/fiber-build" "$RUNNER_TEMP/fiber-snap" "$RUNNER_TEMP/cargo-home"
+          docker run --rm -v "$RUNNER_TEMP:/w" debian:bookworm-slim \
+            sh -c 'rm -rf /w/fiber-build /w/fiber-snap /w/cargo-home' || true
