@@ -59,8 +59,19 @@ jobs:
       ALLOW_KNOWN_FAILURES: ${{ github.event.inputs.allow_known_failures || 'true' }}
 
     steps:
+      - name: Remove stale root-owned artifacts
+        # A previous run may have left store/ owned by the control container.
+        # actions/checkout's clean step cannot unlink those files.
+        run: |
+          if [ -d "$GITHUB_WORKSPACE/store" ]; then
+            docker run --rm -v "$GITHUB_WORKSPACE:/w" debian:bookworm-slim \
+              sh -c 'rm -rf /w/store /w/docker/build' || true
+          fi
+
       - name: Check out fiber-jepsen
         uses: actions/checkout@v4
+        with:
+          clean: false
 
       - name: Check host prerequisites
         run: scripts/ci/check-env.sh
