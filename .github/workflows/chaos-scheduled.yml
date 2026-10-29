@@ -62,14 +62,18 @@ jobs:
       - name: Check out fiber-jepsen
         uses: actions/checkout@v4
 
+      - name: Check host prerequisites
+        run: scripts/ci/check-env.sh
+
       - name: Clean previous devnet
         run: |
           docker compose -f docker/docker-compose.yml down -v --remove-orphans || true
-          rm -rf results store docker/build
+          rm -rf results
+          # store/ is written by the control container as root, so remove it
+          # through a root container instead of relying on the runner user.
+          docker run --rm -v "$PWD:/w" debian:bookworm-slim \
+            sh -c 'rm -rf /w/store /w/docker/build' || true
           mkdir -p results
-
-      - name: Check host prerequisites
-        run: scripts/ci/check-env.sh
 
       - name: Install Rust for the snapshot helper
         # make-snapshot.sh runs tests/deploy/udt-init with `cargo run`; the fnn
@@ -127,14 +131,24 @@ jobs:
           python3 scripts/ci/summarize.py results > results/SUMMARY.md || true
           cat results/SUMMARY.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
 
+      - name: Archive results
+        if: always()
+        run: |
+          # Store paths contain ISO timestamps with colons; upload-artifact
+          # rejects those on Windows-compatible artifact backends.
+          mkdir -p results
+          if [ -d store ]; then
+            tar -czf chaos-results.tgz results store
+          else
+            tar -czf chaos-results.tgz results
+          fi
+
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: fiber-chaos-${{ github.run_id }}
-          path: |
-            results
-            store
+          path: chaos-results.tgz
           if-no-files-found: warn
           retention-days: 14
 
@@ -142,5 +156,7 @@ jobs:
         if: always()
         run: |
           docker compose -f docker/docker-compose.yml down -v --remove-orphans || true
-          rm -rf docker/build store
+          docker run --rm -v "$PWD:/w" debian:bookworm-slim \
+            sh -c 'rm -rf /w/store /w/docker/build' || true
+          rm -rf results chaos-results.tgz
           rm -rf "$RUNNER_TEMP/fiber-build" "$RUNNER_TEMP/fiber-snap" "$RUNNER_TEMP/cargo-home"
