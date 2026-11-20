@@ -34,7 +34,7 @@
       (is (= [:middle] (:kill-targets a) (:kill-targets b)))
       (is (= [:invoice] (:pay-kinds a) (:pay-kinds b)))
       (is (= [1 15] (:process-duration a)))
-      (is (nil? (:process-duration b)))
+      (is (= [8 12] (:process-duration b)))
       (is (= 20 (:nemesis-interval a) (:nemesis-interval b)))
       (is (= [:term :kill] [(:kill-signal a) (:kill-signal b)]))))
   (testing "flashes of 100 ms to 5 s"

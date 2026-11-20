@@ -51,10 +51,12 @@
     "c-02b" {:priority :p0
              :plan     "kill -9 (SIGKILL) the middle node B of A-B-C during multi-hop invoice payments, then restart"
              :args     ["--faults" "kill" "--kill-signal" "kill" "--kill-targets" "middle"
+                        "--process-duration" "8-12"
                         "--pay-kinds" "invoice" "--nemesis-interval" "20" "--time-limit" "300"
                         "--availability-window" "30" "--ledger"]
              :differs  (str "As in c-02a, about a third of the payments cross the middle node."
-                            " Both kill and restart gaps are exponential with a 20 s mean, capped at 100 s.")}
+                            " Schedule the restart 8-12 s after each kill, below the 30 s ACK deadline."
+                            " The gap from restart to the next kill remains exponential with a 20 s mean, capped at 100 s.")}
     "c-03"  {:priority :p0
              :plan     (str "A-B-C, multi-hop payments. B is down longer than the TLC expiry. The"
                             " upstream node eventually recovers the funds, and the payment is Failed.")
