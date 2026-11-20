@@ -89,13 +89,14 @@
              :plan     (str "4-6 node mesh, mixed payments. Random nodes restarted again and"
                             " again. Once all recover, the success rate is back to baseline.")
              :args     ["--nodes" "n1,n2,n3,n4,n5,n6" "--topology" "mesh" "--faults" "kill"
-                        "--kill-targets" "one" "--nemesis-interval" "30" "--time-limit" "300"
+                        "--kill-targets" "one" "--process-duration" "1-15"
+                        "--nemesis-interval" "30" "--time-limit" "300"
                         "--pay-kinds" "keysend,invoice" "--availability-window" "60"
                         "--quiesce" "60" "--probe-routes" "--ledger"]
              :differs  (str "Six nodes, each with channels to three others (the ring and its"
                             " diameters), as in c-06. A kill (SIGKILL) takes one node drawn"
-                            " uniformly; the gap between a kill and the restart, and between a"
-                            " restart and the next kill, is exponential with a 30 s mean, capped"
+                            " uniformly. Schedule its restart 1-15 s after the kill. Only the gap"
+                            " from restart to the next kill is exponential with a 30 s mean, capped"
                             " at 100 s. Baseline and recovery are 60 s of payments each, before"
                             " the first kill and after healing and --quiesce; the recovery's"
                             " success rate may be at most --availability-tolerance (5) points"

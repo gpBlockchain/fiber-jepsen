@@ -40,6 +40,11 @@
   (testing "flashes of 100 ms to 5 s"
     (is (= [100 5000] (:disconnect-flash (:options (parse ["--scenario" "c-05"])))))))
 
+(deftest c-04
+  (let [{:keys [options]} (parse ["--scenario" "c-04"])]
+    (is (= [1 15] (:process-duration options)))
+    (is (= 30 (:nemesis-interval options)))))
+
 (deftest c-16
   (let [{:keys [options errors]} (parse ["--scenario" "c-16"])]
     (is (empty? errors))
