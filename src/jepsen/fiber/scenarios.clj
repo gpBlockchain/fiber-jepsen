@@ -40,18 +40,22 @@
     "c-02a" {:priority :p0
              :plan     "kill (SIGTERM) the middle node B of A-B-C during multi-hop invoice payments, then restart"
              :args     ["--faults" "kill" "--kill-signal" "term" "--kill-targets" "middle"
+                        "--process-duration" "1-15"
                         "--pay-kinds" "invoice" "--nemesis-interval" "20" "--time-limit" "300"
                         "--availability-window" "30" "--ledger"]
              :differs  (str "Payments go between any two of the three nodes, so only those between"
-                            " n1 and n3 cross the middle node, about a third. Kill and restart gaps"
-                            " as in c-01a. fnn must exit within --term-grace, 30 s.")}
+                            " n1 and n3 cross the middle node, about a third. Schedule n2's restart"
+                            " 1-15 s after each kill, leaving at least 15 s of the 30 s ACK window"
+                            " for startup and reconnect. The gap from restart to the next kill"
+                            " remains exponential with a 20 s mean, capped at 100 s."
+                            " fnn must exit within --term-grace, 30 s.")}
     "c-02b" {:priority :p0
              :plan     "kill -9 (SIGKILL) the middle node B of A-B-C during multi-hop invoice payments, then restart"
              :args     ["--faults" "kill" "--kill-signal" "kill" "--kill-targets" "middle"
                         "--pay-kinds" "invoice" "--nemesis-interval" "20" "--time-limit" "300"
                         "--availability-window" "30" "--ledger"]
-             :differs  (str "As c-02a: about a third of the payments cross the middle node, and the"
-                            " kill and restart gaps are those of c-01a.")}
+             :differs  (str "As in c-02a, about a third of the payments cross the middle node."
+                            " Both kill and restart gaps are exponential with a 20 s mean, capped at 100 s.")}
     "c-03"  {:priority :p0
              :plan     (str "A-B-C, multi-hop payments. B is down longer than the TLC expiry. The"
                             " upstream node eventually recovers the funds, and the payment is Failed.")

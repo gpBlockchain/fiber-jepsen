@@ -31,6 +31,9 @@
           b (:options (parse ["--scenario" "c-02b"]))]
       (is (= [:middle] (:kill-targets a) (:kill-targets b)))
       (is (= [:invoice] (:pay-kinds a) (:pay-kinds b)))
+      (is (= [1 15] (:process-duration a)))
+      (is (nil? (:process-duration b)))
+      (is (= 20 (:nemesis-interval a) (:nemesis-interval b)))
       (is (= [:term :kill] [(:kill-signal a) (:kill-signal b)]))))
   (testing "flashes of 100 ms to 5 s"
     (is (= [100 5000] (:disconnect-flash (:options (parse ["--scenario" "c-05"])))))))
