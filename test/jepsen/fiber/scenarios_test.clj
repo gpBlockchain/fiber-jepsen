@@ -23,6 +23,8 @@
         (is (= name (:scenario options)))))))
 
 (deftest s1-scenarios
+  (testing "c-01a schedules a restart within 15 seconds"
+    (is (= [1 15] (:process-duration (:options (parse ["--scenario" "c-01a"]))))))
   (testing "A-B: a later --nodes overrides run.sh's"
     (doseq [name ["c-01a" "c-05"]]
       (is (= ["n1" "n2"] (:nodes (:options (parse ["--nodes" "n1,n2,n3" "--scenario" name])))))))

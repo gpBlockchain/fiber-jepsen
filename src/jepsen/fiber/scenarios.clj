@@ -21,15 +21,14 @@
     "c-01a" {:priority :p0
              :plan     "kill (SIGTERM) A or B at random every 30 to 120 s, then restart"
              :args     ["--nodes" "n1,n2" "--faults" "kill" "--kill-signal" "term"
-                        "--kill-targets" "one" "--nemesis-interval" "20" "--time-limit" "300"
+                        "--kill-targets" "one" "--process-duration" "1-15"
+                        "--nemesis-interval" "20" "--time-limit" "300"
                         "--availability-window" "30" "--ledger"]
              :differs  (str "A-B as in the plan: --nodes n1,n2 opens one channel (the cluster's"
-                            " n3 stays idle). A kill comes every two gaps, the restart one gap"
-                            " after it; gaps are exponential with a 20 s mean, capped at 100 s, so"
-                            " kills come about every 40 s rather than uniformly every 30-120 s, and"
-                            " most restarts come within 30 s, past which the peer force-closes the"
-                            " channel (open question 1 to the team). fnn must exit within"
-                            " --term-grace, 30 s.")}
+                            " n3 stays idle). The restart is scheduled 1-15 s after each kill,"
+                            " below the peer's 30 s response deadline. The gap from restart to"
+                            " the next kill is exponential with a 20 s mean, capped at 100 s."
+                            " fnn must exit within --term-grace, 30 s.")}
     "c-01b" {:priority :p0
              :plan     "kill -9 (SIGKILL) A or B at random every 30 to 120 s, then restart"
              :args     ["--faults" "kill" "--kill-targets" "one" "--nemesis-interval" "75"
