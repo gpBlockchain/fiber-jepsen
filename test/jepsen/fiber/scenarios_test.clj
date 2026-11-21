@@ -68,10 +68,11 @@
     (let [{:keys [options errors]} (parse ["--scenario" "c-08" "--time-limit" "60"])]
       (is (empty? errors))
       (is (= [:pause] (:faults options)))
+      (is (= [1 15] (:process-duration options)))
       (is (= 30 (:nemesis-interval options)))
       (is (= 60 (:time-limit options))))
-    (is (= ["--rate" "9" "--scenario=c-08" "--faults" "pause" "--nemesis-interval" "30"
-            "--time-limit" "300" "--ledger"]
+    (is (= ["--rate" "9" "--scenario=c-08" "--faults" "pause" "--process-duration" "1-15"
+            "--nemesis-interval" "30" "--time-limit" "300" "--ledger"]
            (scenarios/expand ["--rate" "9" "--scenario=c-08"]))))
   (testing "other arguments pass through"
     (is (= ["test" "--faults" "kill"] (scenarios/expand ["test" "--faults" "kill"]))))

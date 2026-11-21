@@ -157,10 +157,11 @@
                             " run; add --force-close-ok to excuse it (open question 1).")}
     "c-08"  {:priority :p1
              :plan     "SIGSTOP a node for tens of seconds, then resume"
-             :args     ["--faults" "pause" "--nemesis-interval" "30" "--time-limit" "300" "--ledger"]
-             :differs  (str "Three nodes in a line rather than A-B. A pause lasts an exponential"
-                            " 30 s on average, capped at 100 s, so some cross V2's 30 s"
-                            " peer-response deadline.")}
+             :args     ["--faults" "pause" "--process-duration" "1-15"
+                        "--nemesis-interval" "30" "--time-limit" "300" "--ledger"]
+             :differs  (str "Three nodes in a line rather than A-B. Each pause lasts 1-15 whole"
+                            " seconds, drawn per pause, below V2's 30 s peer-response deadline;"
+                            " the gap after each resume averages 30 s.")}
     "c-09"  {:priority :p0
              :plan     (str "Any topology; channels opened and closed continuously; CKB disconnected"
                             " for seconds to minutes. Channels end Ready or Closed, never stuck in"
