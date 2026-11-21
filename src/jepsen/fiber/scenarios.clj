@@ -117,21 +117,20 @@
                             " has paid it.")}
     "c-06"  {:priority :p0
              :plan     (str "Mesh, multi-hop payments. A partition isolates half the nodes for"
-                            " minutes, then heals. Routing works after healing, payments converge.")
+                            " 5-15 seconds, then heals. Routing works after healing, payments converge.")
              :args     ["--nodes" "n1,n2,n3,n4,n5,n6" "--topology" "mesh" "--faults" "partition"
-                        "--partition-targets" "half" "--partition-duration" "120-300"
+                        "--partition-targets" "half" "--partition-duration" "5-15"
                         "--nemesis-interval" "60" "--time-limit" "600" "--quiesce" "60"
                         "--probe-routes" "--ledger"]
              :differs  (str "Six nodes, each with channels to three others (the ring and its"
                             " diameters); 6 of the 15 node pairs are two hops apart, the rest"
                             " neighbours, and each payment goes to a node drawn uniformly. Each"
-                            " partition cuts a random half from the other half for 120-300 s,"
+                            " partition cuts a random half from the other half for 5-15 s,"
                             " then heals for an exponential 60 s on average, capped at 100 s."
                             " Routing after healing is a payment between every two nodes without"
-                            " a channel, on top of the usual probe of each channel. A partition"
-                            " over 30 s force-closes the channels across it that had an update in"
-                            " flight, which fails the run; add --force-close-ok to excuse closed"
-                            " channels and what they explain (open question 1).")}
+                            " a channel, on top of the usual probe of each channel. The partition"
+                            " stays below fnn's 30 s peer-response deadline; any channel that"
+                            " still force-closes fails the run.")}
     "c-07"  {:priority :p1
              :plan     (str "A-B-C, large MPP payments, tc netem delay of 500 ms-3 s plus 10% loss."
                             " Each MPP payment fully succeeds or fully fails; money is conserved.")

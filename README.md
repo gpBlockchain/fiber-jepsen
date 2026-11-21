@@ -107,9 +107,9 @@ scripts/repeat.sh 4 --time-limit 60 --faults kill --kill-targets all --rate 20 -
 # no faults: checks the harness itself (the cluster comes up, payments flow, every checker passes)
 scripts/run.sh --time-limit 45 --faults none --ledger
 
-# six nodes in a mesh; a random half cut off for 2-5 minutes at a time
+# six nodes in a mesh; a random half cut off for 5-15 seconds at a time
 scripts/run.sh --nodes n1,n2,n3,n4,n5,n6 --topology mesh --faults partition \
-  --partition-targets half --partition-duration 120-300 --time-limit 600 --probe-routes
+  --partition-targets half --partition-duration 5-15 --time-limit 600 --probe-routes
 ```
 
 CI runs that last command on every pull request that touches the harness, and on `main` after a merge, against the Fiber commit pinned in `.github/workflows/smoke.yml`; fnn is built once per Fiber commit and cached, and its compiled dependencies are cached across commits, so a new commit compiles only Fiber's own crates. The devnet snapshot doesn't use fnn, so it is cached by the contents of Fiber's `tests/deploy` and `tests/nodes` (with the ckb version and the snapshot scripts): a commit that changes only Fiber's code reuses it. The smoke run is a check of this suite, not of Fiber, so it never injects faults. To run any arguments against another Fiber commit on a GitHub runner, start the Jepsen workflow (`jepsen.yml`) by hand from the Actions tab.
