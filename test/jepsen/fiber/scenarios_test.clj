@@ -46,6 +46,17 @@
     (is (= [5 15] (:partition-duration options)))
     (is (not (:force-close-ok options)))))
 
+(deftest c-03
+  (let [{:keys [options errors]} (parse ["--scenario" "c-03"])]
+    (is (empty? errors))
+    (is (= [:outage] (:faults options)))
+    (is (= [:middle] (:outage-targets options)))
+    (is (= [5 15] (:outage-duration options)))
+    (is (< (second (:outage-duration options)) 30))
+    (is (= 34200 (:outage-jump options)))
+    (is (:expiry-check options))
+    (is (:force-close-ok options))))
+
 (deftest c-04
   (let [{:keys [options]} (parse ["--scenario" "c-04"])]
     (is (= [1 15] (:process-duration options)))
