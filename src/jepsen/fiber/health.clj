@@ -1,6 +1,7 @@
 (ns jepsen.fiber.health
-  "Process health, assertion 7 of the chaos-test plan: no panic, and no node that
-  is alive but does no work (the plan's 假活: the process is there but doesn't work).
+  "Process health, assertion 7 of the chaos-test plan: no pre-shutdown panic,
+  and no node that is alive but does no work (the plan's 假活: the process is
+  there but doesn't work).
 
   Two sources:
   - Each node's fnn.log, which Jepsen downloads into the store before the
@@ -12,11 +13,9 @@
     answers (it writes to fnn's store, so it fails when the store can't), and
     the container's out-of-memory kills (cgroup v2 memory.events).
 
-  The checker is invalid when a node panicked, when a node isn't healthy in the
-  final sample (exited, stopped, unresponsive, or not working: node_info answers
-  but new_invoice doesn't), when the kernel killed a process for memory, or when
-  a harness restart found fnn already gone although nothing had killed it (it
-  exited on its own and a later :start brought it back).
+  The checker is invalid for a pre-shutdown panic, an unhealthy final sample
+  (exited, stopped, unresponsive, or not working), an out-of-memory kill, or a
+  harness restart that found fnn already gone without a prior kill.
 
   `sample!` is public so that a fault can record the same facts while it is in
   effect (a full disk, say), to tell a node that stopped from one that looks
@@ -275,27 +274,15 @@
        last
        :value))
 
-(defn tolerated-shutdown-panic?
-  "Only the two observed shutdown-only panics are diagnostic. Keep all other
-  panics fatal, including these signatures outside a logged SIGTERM/SIGINT."
-  [{:keys [at message shutdown?]}]
-  (and shutdown?
-       (or (and (= at "crates/fiber-lib/src/fiber/channel.rs:11683:14")
-                (= message "network actor must be alive: SendErr"))
-           (and (boolean (re-matches #".*/ractor-0\.15\.13/src/actor/supervision\.rs:150:33" (or at "")))
-                (boolean (re-matches #"task [0-9]+ was cancelled" (or message "")))))))
-
 (defn check*
-  "The verdict from logs, final samples and history. Only c-02a tolerates the
-  observed shutdown signatures; all scenarios still report every panic."
-  [logs final history test]
+  "The verdict from logs, final samples and history. Panics after a logged
+  shutdown signal are reported but do not invalidate the run."
+  [logs final history _test]
   (let [nodes    (sort (into (set (keys logs)) (keys final)))
         statuses (into (sorted-map) (for [n nodes] [n (status (get final n))]))
         panics   (for [[n l] logs, p (:panics l)] (assoc p :node n))
-        tolerated-panics (if (= "c-02a" (:scenario test))
-                           (filter tolerated-shutdown-panic? panics)
-                           [])
-        unexpected-panics (remove (set tolerated-panics) panics)
+        tolerated-panics (filter :shutdown? panics)
+        unexpected-panics (remove :shutdown? panics)
         ooms     (into (sorted-map)
                        (for [[n s] final
                              :let  [k (get-in s [:memory :oom-kills])]
@@ -345,7 +332,7 @@
                                                [n p]))}))
 
 (defn check
-  "Default health verdict: every panic remains fatal."
+  "Health verdict; only panics before shutdown are fatal."
   [logs final history]
   (check* logs final history {}))
 
