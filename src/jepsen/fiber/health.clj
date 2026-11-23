@@ -275,13 +275,27 @@
        last
        :value))
 
-(defn check
-  "The verdict from the logs ({node parse-log-result}, nil for a node without a
-  log), the final sample ({node sample}, nil without one) and the history."
-  [logs final history]
+(defn tolerated-shutdown-panic?
+  "Only the two observed shutdown-only panics are diagnostic. Keep all other
+  panics fatal, including these signatures outside a logged SIGTERM/SIGINT."
+  [{:keys [at message shutdown?]}]
+  (and shutdown?
+       (or (and (= at "crates/fiber-lib/src/fiber/channel.rs:11683:14")
+                (= message "network actor must be alive: SendErr"))
+           (and (boolean (re-matches #".*/ractor-0\.15\.13/src/actor/supervision\.rs:150:33" (or at "")))
+                (boolean (re-matches #"task [0-9]+ was cancelled" (or message "")))))))
+
+(defn check*
+  "The verdict from logs, final samples and history. Only c-02a tolerates the
+  observed shutdown signatures; all scenarios still report every panic."
+  [logs final history test]
   (let [nodes    (sort (into (set (keys logs)) (keys final)))
         statuses (into (sorted-map) (for [n nodes] [n (status (get final n))]))
         panics   (for [[n l] logs, p (:panics l)] (assoc p :node n))
+        tolerated-panics (if (= "c-02a" (:scenario test))
+                           (filter tolerated-shutdown-panic? panics)
+                           [])
+        unexpected-panics (remove (set tolerated-panics) panics)
         ooms     (into (sorted-map)
                        (for [[n s] final
                              :let  [k (get-in s [:memory :oom-kills])]
@@ -289,7 +303,7 @@
                          [n k]))
         restarts (unexpected-restarts history)
         unhealthy (into (sorted-map) (remove (comp #{:ok} val) statuses))]
-    {:valid?              (cond (seq panics)    false
+    {:valid?              (cond (seq unexpected-panics) false
                                 (seq ooms)      false
                                 (seq restarts)  false
                                 (nil? final)    :unknown
@@ -302,6 +316,8 @@
                                   [n (assoc (select-keys (get final n) [:process :rpc :store-write])
                                             :status st)]))
      :panics              (count panics)
+     :tolerated-shutdown-panics (count tolerated-panics)
+     :unexpected-panics   (count unexpected-panics)
      ; Panics after fnn logged SIGTERM: its graceful shutdown (S1's --kill-signal
      ; term, or the TERM before Jepsen collects logs) has panicked before.
      :shutdown-panics     (count (filter :shutdown? panics))
@@ -328,6 +344,11 @@
                                                    :when p]
                                                [n p]))}))
 
+(defn check
+  "Default health verdict: every panic remains fatal."
+  [logs final history]
+  (check* logs final history {}))
+
 (defn checker
   "Assertion 7: see the namespace doc."
   []
@@ -338,4 +359,4 @@
                                        (catch Exception e
                                          (warn e "Couldn't read" log-name "of" node)
                                          nil))]))]
-        (check logs (final-health history) history)))))
+        (check* logs (final-health history) history test)))))

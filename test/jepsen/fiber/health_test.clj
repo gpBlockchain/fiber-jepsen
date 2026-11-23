@@ -146,6 +146,33 @@
         (is (false? (:valid? r)))
         (is (= 1 (:shutdown-panics r)))
         (is (:during-shutdown (first (:panic-sites r))))))
+    (testing "only the two observed shutdown signatures are tolerated"
+      (let [known [{:at "crates/fiber-lib/src/fiber/channel.rs:11683:14"
+                    :message "network actor must be alive: SendErr", :shutdown? true}
+                   {:at "/home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ractor-0.15.13/src/actor/supervision.rs:150:33"
+                    :message "task 9232 was cancelled", :shutdown? true}]
+            r (health/check* (assoc-in logs ["n2" :panics] known) final [] {:scenario "c-02a"})]
+        (is (true? (:valid? r)))
+        (is (= 2 (:panics r)))
+        (is (= 2 (:shutdown-panics r)))
+        (is (= 2 (:tolerated-shutdown-panics r)))
+        (is (= 0 (:unexpected-panics r)))
+        (is (= 2 (count (:panic-sites r))))
+        (is (false? (:valid? (health/check (assoc-in logs ["n2" :panics] known) final []))))
+        (doseq [p known]
+          (is (false? (:valid? (health/check* (assoc-in logs ["n2" :panics]
+                                               [(assoc p :shutdown? false)]) final [] {:scenario "c-02a"})))))
+        (is (false? (:valid? (health/check* (assoc-in logs ["n2" :panics]
+                                             [(assoc (first known) :message "different")]) final [] {:scenario "c-02a"}))))
+        (is (false? (:valid? (health/check* (assoc-in logs ["n2" :panics]
+                                             [(assoc (first known) :at "crates/fiber-lib/src/fiber/channel.rs:11684:14")]) final [] {:scenario "c-02a"}))))
+        (is (false? (:valid? (health/check* (assoc-in logs ["n2" :panics]
+                                             [(assoc (second known) :message "task failed")]) final [] {:scenario "c-02a"}))))
+        (is (false? (:valid? (health/check* (assoc-in logs ["n2" :panics]
+                                             (conj known {:at "elsewhere", :message "boom", :shutdown? true}))
+                                         final [] {:scenario "c-02a"}))))
+        (is (false? (:valid? (health/check* (assoc-in logs ["n2" :panics] known)
+                                         (assoc-in final ["n2" :store-write :error] "boom") [] {:scenario "c-02a"}))))))
     (testing "a node that looks alive but can't write"
       (let [r (health/check logs (assoc-in final ["n2" :store-write :error] "boom") [])]
         (is (false? (:valid? r)))
