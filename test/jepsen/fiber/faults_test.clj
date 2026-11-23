@@ -168,31 +168,46 @@
              (set (map #(set (map count %)) (cuts (ops 6 {:partition-targets [:one :half]})))))))))
 
 (deftest partition-durations
-  (let [usual #(take 20 (schedule/gaps (schedule/gaps-stream (schedule/streams 9) :partition) 15))]
-    (testing "without --partition-duration, the usual gaps"
-      (is (= (usual) (take 20 (partition/gaps (schedule/streams 9) {:nemesis-interval 15})))))
-    (testing "with it, each partition lasts a drawn number of seconds; the healings keep their gaps"
-      (let [g (take 20 (partition/gaps (schedule/streams 9) {:nemesis-interval 15
-                                                            :partition-duration [120 300]}))]
-        (is (every? #(and (<= 120e9 % 300e9) (zero? (mod % 1000000000))) (take-nth 2 g)))
-        (is (< 3 (count (set (take-nth 2 g)))))
-        (is (= (take 10 (usual)) (take-nth 2 (rest g))))))
-    (testing "under the simulator, a partition lasts what was drawn"
-      (let [hist  (->> (gt/simulate (gen/context {:concurrency 1})
-                                    (gen/nemesis (gen/limit 20 (faults/generator
-                                                                 (schedule/streams 9)
-                                                                 {:nodes six, :faults [:partition]
-                                                                  :nemesis-interval 15
-                                                                  :partition-duration [120 300]})))
-                                    (fn [_ctx op] (-> op (assoc :type :ok) (update :time + 1000000))))
-                       (filter #(= :info (:type %))))
-            spans (->> hist (partition 2) (map (fn [[a b]] [(:f a) (:f b) (- (:time b) (:time a))])))]
-        (is (= 10 (count spans)))
-        (is (every? (fn [[a b dt]] (and (= :start-partition a) (= :stop-partition b)
-                                        (<= 120e9 dt 300e9)))
-                    spans))))
-    (is (= [120 300] (partition/parse-duration "120-300")))
-    (is (= [180 180] (partition/parse-duration "180")))))
+  (let [draw #(take 512 (partition/gaps (schedule/streams 9) %))
+        active #(take-nth 2 %)
+        healed #(take-nth 2 (rest %))
+        ns-range (fn [lo hi] (set (map #(* 1000000000 %) (range lo (inc hi)))))
+        defaults (draw {})]
+    (is (= (ns-range 1 5) (set (active defaults))))
+    (is (= (ns-range 15 30) (set (healed defaults))))
+    (is (= defaults (draw {:nemesis-interval 2})))
+    (let [custom (draw {:partition-duration [120 300]})]
+      (is (every? (ns-range 120 300) (active custom)))
+      (is (= (healed defaults) (healed custom))))
+    (let [shared   (draw {:network-interval [6 8]})
+          override (draw {:network-interval [6 8], :partition-interval [20 20]})]
+      (is (= (active defaults) (active shared) (active override)))
+      (is (= (ns-range 6 8) (set (healed shared))))
+      (is (= #{20000000000} (set (healed override))))))
+  (is (= [120 300] (partition/parse-duration "120-300")))
+  (is (= [180 180] (partition/parse-duration "180"))))
+
+(deftest partition-waits-from-completion
+  ;; :info on both invocation and completion, just like the real nemesis.
+  ;; Installing/healing takes longer than the waits; unrelated packet ops run
+  ;; instantly and share the worker without consuming the partition's cooldown.
+  (let [o       (assoc opts :faults [:partition :packet]
+                            :partition-duration [3 3] :partition-interval [17 17])
+        history (gt/simulate (gen/context {:concurrency 1})
+                             (gen/nemesis (gen/time-limit 400 (faults/generator (schedule/streams 9) o)))
+                             (fn [_ op]
+                               (update op :time + (case (:f op)
+                                                    :start-partition 7000000000
+                                                    :stop-partition 31000000000
+                                                    0))))
+        events  (filter (comp #{:start-partition :stop-partition} :f) history)
+        waits   (for [[_ done next-op] (partition 3 2 events)]
+                  [(:f done) (:f next-op) (- (:time next-op) (:time done))])]
+    (is (< 8 (count waits)))
+    (is (= (take (count waits) (cycle [[:start-partition :stop-partition 3000000000]
+                                       [:stop-partition :start-partition 17000000000]]))
+           waits))
+    (is (some #(= :start-packet (:f %)) history))))
 
 (deftest chain-partition
   (let [ops    (take 400 (chain-partition/ops (schedule/stream (schedule/streams 5) :chain-partition)

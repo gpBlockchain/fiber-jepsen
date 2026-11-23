@@ -12,6 +12,8 @@
     :gaps     optional, (fn [streams opts]) -> the gaps in ns between its ops,
               for a fault that sets how long each fault lasts. Without it, gaps
               average :nemesis-interval seconds, from the fault's gap stream.
+    :pace     optional, (fn [gaps ops]) -> a generator. Defaults to
+              schedule/paced, which counts gaps from invocation.
     :checker  optional, (fn [opts]) -> nil or {name checker}: checks of its own
               that the test adds to its checker when the fault is in use;
     :env      optional, (fn [opts]) -> environment variables fnn starts with
@@ -205,11 +207,11 @@
   by gaps averaging :nemesis-interval seconds (or the fault's own :gaps),
   combined as nc/compose-packages combines generators. Nil without faults."
   [streams opts]
-  (let [gens (for [{:keys [stream ops gaps]} (in-use opts)]
-               (schedule/paced (if gaps
-                                 (gaps streams opts)
-                                 (schedule/gaps (schedule/gaps-stream streams stream)
-                                                (:nemesis-interval opts)))
-                               (ops (schedule/stream streams stream) opts)))]
+  (let [gens (for [{:keys [stream ops gaps pace] :or {pace schedule/paced}} (in-use opts)]
+               (pace (if gaps
+                       (gaps streams opts)
+                       (schedule/gaps (schedule/gaps-stream streams stream)
+                                      (:nemesis-interval opts)))
+                     (ops (schedule/stream streams stream) opts)))]
     (when (seq gens)
       (apply gen/any gens))))

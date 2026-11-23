@@ -5,11 +5,10 @@
     :one   one node, isolated from the others (the default);
     :half  a random half of the nodes, isolated from the other half (for an odd
            count, the smaller half).
-  A partition lasts until the next op of this fault, a gap of --nemesis-interval
-  seconds on average and at most 100 s, like every fault's. With
-  --partition-duration MIN-MAX each partition lasts a whole number of seconds
-  drawn from that range instead, minutes if need be, and the gaps between a
-  healing and the next partition stay as they were.
+  Once the cut is in place, wait 1-5 s before healing. Once healing completes,
+  wait 15-30 s before the next cut. --partition-duration and --partition-interval
+  override these ranges; --network-interval also applies when no partition
+  interval is specified. Both waits are drawn in whole seconds per cycle.
 
   TCP keeps the connection open through the drop and retransmits once it heals,
   so this rarely makes channels reestablish; the disconnect fault does. A node
@@ -21,8 +20,10 @@
   also end a chain partition that is in effect at the time."
   (:require [clojure.string :as str]
             [jepsen [control :as c]
+                    [generator :as gen]
                     [nemesis :as n]
                     [net :as jnet]]
+            [jepsen.generator.context :as ctx]
             [jepsen.net.proto :as p]
             [jepsen.nemesis.combined :as nc]
             [jepsen.fiber.schedule :as schedule])
@@ -30,6 +31,9 @@
 
 (def target-specs
   #{:one :half})
+
+(def default-duration [1 5])
+(def default-interval [15 30])
 
 (defn shuffled
   "`coll` in an order drawn from `r` (Fisher-Yates)."
@@ -65,20 +69,28 @@
              (repeatedly #(grudge r nodes (spec)))))))
 
 (defn gaps
-  "The gaps in ns between this fault's ops, which alternate between a partition
-  and its healing. Without :partition-duration, every fault's gaps. With it
-  ([min max] seconds), each partition lasts a whole number of seconds drawn from
-  a stream of its own, and the gaps after each healing come from the usual gap
-  stream."
+  "Alternate the active and healed waits (ns), drawn from independent streams."
   [streams opts]
-  (let [usual (schedule/network-gaps streams :partition opts false)]
-    (if-let [[lo hi] (:partition-duration opts)]
-      (let [^SplittableRandom r (schedule/stream streams :partition-duration)]
-        (interleave (schedule/ranged-gaps r [lo hi])
-                    (if (:network-interval opts)
-                      (take-nth 2 (rest usual))
-                      usual)))
-      usual)))
+  (interleave (schedule/ranged-gaps (schedule/stream streams :partition-duration)
+                                    (or (:partition-duration opts) default-duration))
+              (schedule/ranged-gaps (schedule/stream streams :partition-network-interval)
+                                    (or (:partition-interval opts) (:network-interval opts)
+                                        default-interval))))
+
+(defrecord PartitionCycle [gaps ops due]
+  gen/Generator
+  (op [this _ ctx]
+    (when-let [op (first ops)]
+      (let [op (gen/fill-in-op op ctx)]
+        [(if (identical? :pending op) op (update op :time max due)) this])))
+  (update [this _ ctx event]
+    ;; Both invocation and completion are :info. Only the completion frees the
+    ;; nemesis; other faults sharing it must not advance this partition's clock.
+    (if (and (= :nemesis (:process event))
+             (= (:f event) (:f (first ops)))
+             (ctx/thread-free? ctx :nemesis))
+      (PartitionCycle. (rest gaps) (rest ops) (+ (:time event) (first gaps)))
+      this)))
 
 (def partition-rule
   "A rule of jepsen.net/iptables's partitions as `iptables -S INPUT` prints it:
@@ -121,8 +133,8 @@
 (defn parse-duration
   "\"120-300\" -> [120 300]; \"180\" -> [180 180]. Seconds."
   [s]
-  (let [[lo hi] (map parse-long (str/split s #"-" 2))]
-    [lo (or hi lo)]))
+  (let [[lo hi] (str/split s #"-" 2)]
+    [(parse-long lo) (parse-long (or hi lo))]))
 
 (def fault
   {:faults  #{:partition}
@@ -130,4 +142,5 @@
    :package nc/partition-package
    :ops     (fn [r opts] (ops r (vec (:nodes opts)) (:partition-targets opts [:one])))
    :gaps    gaps
+   :pace    (fn [gaps ops] (->PartitionCycle gaps ops 0))
    :fired   {:partition #{:start-partition}}})

@@ -54,10 +54,10 @@
   [(count (take-while true? (map = xs ys))) (min (count xs) (count ys))])
 
 (defn workload
-  "Payments and every fault, with a fault every 2 s on average, for 400 ops."
+  "A short cadence for every fault so each has a long prefix to compare in 400 ops."
   [seed]
   (let [streams (schedule/streams seed)
-        opts    (assoc opts :nemesis-interval 2)]
+        opts    (assoc opts :nemesis-interval 2 :partition-duration [1 3] :partition-interval [1 3])]
     (gen/limit 400 (gen/nemesis (faults/generator streams opts)
                                 (fiber/payments opts streams)))))
 
@@ -104,11 +104,7 @@
     (is (= after (vec (take 60 (schedule/network-gaps (schedule/streams 7) :packet o false)))))
     (is (= before (vec (take 60 (schedule/gaps
                                    (schedule/gaps-stream (schedule/streams 7) :packet) 15))))))
-  (let [o    (assoc opts :partition-duration [5 15], :network-interval [1 5])
-        gaps (vec (take 40 (partition/gaps (schedule/streams 9) o)))]
-    (is (every? #(<= 5e9 % 15e9) (take-nth 2 gaps)))
-    (is (every? #(<= 1e9 % 5e9) (take-nth 2 (rest gaps)))))
-  (let [o (assoc opts :network-interval [1 5])]
+  (let [o (assoc opts :network-interval [1 5], :partition-interval [15 30])]
     (doseq [fault [disconnect/fault packet/fault chain-partition/fault]]
       (let [gaps (take 40 ((:gaps fault) (schedule/streams 9) o))]
         (is (every? #(<= 1e9 % 5e9) (take-nth 2 (rest gaps))))))

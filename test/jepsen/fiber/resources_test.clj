@@ -42,6 +42,20 @@
                   (map :value (filter (comp #{:limit-resources} :f)
                                       (draw 3 (assoc opts :faults [:cpu] :cpu-limit [0.25 0.25]) 50))))))))
 
+(deftest alternating-limits
+  (let [step (fn [{:keys [f value]}]
+               (case f
+                 :limit-resources (cond (:cpus value) :cpu, (:memory-mib value) :memory)
+                 :lift-resources  :lift))]
+    (doseq [seed [3 4]
+            [enabled pattern] [[[:memory :cpu] [:cpu :lift :memory :lift]]
+                               [[:cpu] [:cpu :lift]]
+                               [[:memory] [:memory :lift]]]]
+      (let [o (assoc opts :faults enabled :resource-order :alternate)]
+        (is (= (take 24 (cycle pattern)) (map step (draw seed o 24))))))
+    (is (= :lift-resources (get-in (resources/package {:faults #{:cpu :memory}})
+                                   [:final-generator :f])))))
+
 (deftest registered
   (is (= :resources (:stream (first (faults/in-use {:faults [:memory]})))))
   (is (contains? (faults/checkers {:faults [:cpu]}) :disconnect-loops))
@@ -55,6 +69,7 @@
     (is (seq (:errors (parse "--cpu-limit" "0.5-0.1"))))
     (is (seq (:errors (parse "--memory-limit" "8"))))
     (is (seq (:errors (parse "--resource-targets" "one,most"))))
+    (is (seq (:errors (parse "--resource-order" "unknown"))))
     (is (= [:cpu :memory] (:faults (:options (parse "--faults" "cpu,memory")))))))
 
 (deftest limit-body

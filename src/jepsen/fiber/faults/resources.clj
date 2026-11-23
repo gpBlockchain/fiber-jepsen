@@ -251,30 +251,30 @@
                          :color "#E9C4A0"}}}))
 
 (defn ops
-  "Endless pairs of a :limit-resources, its kind (among the --faults cpu and
-  memory in use), targets and amount drawn from `r`, and a :lift-resources.
-  Options: :resource-targets (specs to choose from), :cpu-limit and
-  :memory-limit ([min max], drawn uniformly; CPUs to a hundredth, MiB)."
+  "Each limit is followed by a lift. :resource-order chooses the kind at random
+  (default) or alternates the enabled kinds, CPU first. Targets and amounts
+  are drawn from `r` in either mode."
   [^SplittableRandom r opts]
-  (let [kinds     (vec (filter (set (:faults opts)) [:cpu :memory]))
+  (let [kinds     (filterv (set (:faults opts)) [:cpu :memory])
+        order     (case (:resource-order opts :random)
+                    :random    (repeatedly #(schedule/pick r kinds))
+                    :alternate (cycle kinds))
         nodes     (vec (:nodes opts))
         specs     (vec (:resource-targets opts [:one]))
         [clo chi] (:cpu-limit opts [0.1 0.5])
         [mlo mhi] (:memory-limit opts [128 512])]
-    (mapcat (fn [limit]
-              [{:type :info, :f :limit-resources, :value limit}
-               {:type :info, :f :lift-resources, :value nil}])
-            (repeatedly
-              (fn []
-                (let [kind    (schedule/pick r kinds)
-                      targets (case (schedule/pick r specs)
-                                :one [(schedule/pick r nodes)]
-                                :all nodes)]
-                  (case kind
-                    :cpu    {:nodes targets
-                             :cpus  (/ (Math/round (* 100 (+ clo (* (.nextDouble r) (- chi clo))))) 100.0)}
-                    :memory {:nodes      targets
-                             :memory-mib (+ (long mlo) (.nextInt r (int (inc (- (long mhi) (long mlo))))))})))))))
+    (mapcat (fn [kind]
+              (let [targets (case (schedule/pick r specs)
+                              :one [(schedule/pick r nodes)]
+                              :all nodes)
+                    limit   (case kind
+                              :cpu    {:nodes targets
+                                       :cpus (/ (Math/round (* 100 (+ clo (* (.nextDouble r) (- chi clo))))) 100.0)}
+                              :memory {:nodes targets
+                                       :memory-mib (+ (long mlo) (.nextInt r (int (inc (- (long mhi) (long mlo))))))})]
+                [{:type :info, :f :limit-resources, :value limit}
+                 {:type :info, :f :lift-resources, :value nil}]))
+            order)))
 
 ;; Disconnect loops, from fnn's debug log
 

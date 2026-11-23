@@ -347,8 +347,13 @@
     :parse-fn keywords
     :validate [#(every? partition/target-specs %) (str "Must be a subset of " partition/target-specs)]]
    [nil "--partition-duration SECONDS" (str "With --faults partition, how long each partition lasts,"
-                                            " or a range MIN-MAX drawn per partition. Default: until"
-                                            " the next fault op, like other faults (at most 100 s).")
+                                            " or a range MIN-MAX drawn per partition. Default: 1-5 s.")
+    :default  partition/default-duration
+    :parse-fn partition/parse-duration
+    :validate [(fn [[lo hi]] (and lo hi (< 0 lo) (<= lo hi))) "Must be S or MIN-MAX, 0 < MIN <= MAX"]]
+   [nil "--partition-interval SECONDS" (str "Whole seconds from completed partition healing to the next"
+                                            " partition, or a range MIN-MAX. Overrides --network-interval"
+                                            " for partitions only. Default if neither is set: 15-30 s.")
     :parse-fn partition/parse-duration
     :validate [(fn [[lo hi]] (and lo hi (< 0 lo) (<= lo hi))) "Must be S or MIN-MAX, 0 < MIN <= MAX"]]
    [nil "--chain-partition-targets TARGETS" (str "With --faults chain-partition, comma-separated"
@@ -430,6 +435,11 @@
     :default  0
     :parse-fn parse-long
     :validate [#(and % (<= 0 %)) "Must be 0 or more"]]
+   [nil "--resource-order ORDER" (str "Choose resource limits at random, or alternate CPU then memory."
+                                      " Each limit is lifted before the next; disabled kinds are skipped.")
+    :default  :random
+    :parse-fn keyword
+    :validate [#{:random :alternate} "Must be random or alternate"]]
    [nil "--resource-targets TARGETS" (str "With --faults cpu or memory, comma-separated target specs to"
                                           " choose from: one (a random node), all.")
     :default  [:one]

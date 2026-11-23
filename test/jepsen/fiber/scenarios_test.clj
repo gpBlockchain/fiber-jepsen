@@ -45,8 +45,8 @@
 (deftest c-06
   (let [{:keys [options errors]} (parse ["--scenario" "c-06"])]
     (is (empty? errors))
-    (is (= [5 15] (:partition-duration options)))
-    (is (= [1 5] (:network-interval options)))
+    (is (= [1 5] (:partition-duration options)))
+    (is (= [15 30] (:network-interval options)))
     (is (not (:force-close-ok options)))))
 
 (deftest c-03
@@ -65,6 +65,14 @@
     (is (= [1 5] (:process-duration options)))
     (is (= 30 (:nemesis-interval options)))))
 
+(deftest c-12-resource-order
+  (let [{:keys [options errors]} (parse ["--scenario" "c-12"])]
+    (is (empty? errors))
+    (is (= [:cpu :memory] (:faults options)))
+    (is (= :alternate (:resource-order options))))
+  (is (= :random (:resource-order (:options (parse ["--scenario" "c-16"])))))
+  (is (= :random (:resource-order (:options (parse ["--scenario" "c-12" "--resource-order" "random"]))))))
+
 (deftest c-16
   (let [{:keys [options errors]} (parse ["--scenario" "c-16"])]
     (is (empty? errors))
@@ -78,12 +86,13 @@
       (is (= [1 5] (:kill-duration options)))
       (is (= [5 20] (:process-duration options)))
       (is (= [1 5] (:network-interval options)))
-      (is (< (second (:partition-duration options)) 30))
+      (is (= [1 5] (:partition-duration options)))
+      (is (= [15 30] (:partition-interval options)))
       (is (< (second (:clock-jump options)) 30))
       (is (not (:force-close-ok options)))
       (is (nil? (:force-close-ok-after options))))
-    (testing "network-only scenarios use a 1-5 s post-heal interval"
-      (doseq [name ["c-05" "c-06" "c-07" "c-09" "c-10"]]
+    (testing "non-partition network scenarios keep their 1-5 s post-heal interval"
+      (doseq [name ["c-05" "c-07" "c-09" "c-10"]]
         (is (= [1 5] (:network-interval (:options (parse ["--scenario" name])))))))
     (testing "the narrower rule can be added"
       (is (= 30 (:force-close-ok-after (:options (parse ["--scenario" "c-16"
@@ -100,6 +109,13 @@
     (is (= ["--rate" "9" "--scenario=c-08" "--faults" "pause" "--process-duration" "1-15"
             "--nemesis-interval" "30" "--time-limit" "300" "--ledger"]
            (scenarios/expand ["--rate" "9" "--scenario=c-08"]))))
+  (testing "a partition interval can be overridden without slowing other faults"
+    (let [{:keys [options errors]} (parse ["--scenario" "c-16" "--partition-interval" "20"])]
+      (is (empty? errors))
+      (is (= [20 20] (:partition-interval options)))
+      (is (= [1 5] (:network-interval options))))
+    (doseq [interval ["30-15" "0" "15-X"]]
+      (is (seq (:errors (parse ["--partition-interval" interval]))))))
   (testing "other arguments pass through"
     (is (= ["test" "--faults" "kill"] (scenarios/expand ["test" "--faults" "kill"]))))
   (testing "an unknown name is an error"
