@@ -43,6 +43,21 @@
   its own."
   1000)
 
+(def max-outage-s
+  "Maximum scheduled gap from a :power-off to its :power-on, in seconds."
+  15)
+
+(defn gaps
+  "Cap only the gaps after :power-off; leave gaps after :power-on at the
+  usual nemesis interval. The operations in `ops` alternate off/on."
+  [streams opts]
+  (map-indexed (fn [i gap]
+                 (if (even? i)
+                   (min gap (* 1000000000 max-outage-s))
+                   gap))
+               (schedule/gaps (schedule/gaps-stream streams :power)
+                              (:nemesis-interval opts))))
+
 (defn store-bytes
   "The apparent size in bytes of `node`'s store, as fnn sees it through LazyFS."
   [node]
@@ -220,5 +235,6 @@
    :stream  :power
    :package package
    :ops     ops
+   :gaps    gaps
    :checker (fn [_opts] {:power (checker)})
    :fired   {:power #{:power-off}}})

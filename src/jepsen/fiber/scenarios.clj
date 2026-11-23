@@ -334,6 +334,8 @@
                         "--nemesis-interval" "20" "--time-limit" "180" "--ledger"]
              :differs  (str "Synced writes: every store write waits for the disk, so a node should"
                             " come back with everything it acknowledged."
+                            " The scheduled outage is capped at 15 s; the interval after power-on"
+                            " still uses --nemesis-interval."
                             " fnn's store is on LazyFS (scripts/run.sh --compose lazyfs), which keeps"
                             " writes in a cache of its own until fsync; a power loss SIGKILLs fnn on"
                             " one node or all of them and drops that cache. Needs Fiber from"

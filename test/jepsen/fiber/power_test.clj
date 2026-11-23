@@ -20,6 +20,18 @@
     (testing "the seed fixes them"
       (is (= ops (take 60 (power/ops (schedule/stream (schedule/streams 5) :power) opts)))))))
 
+(deftest outage-gaps
+  (let [settings (assoc opts :nemesis-interval 20)
+        actual   (vec (take 100 (power/gaps (schedule/streams 5) settings)))
+        usual    (vec (take 100 (schedule/gaps
+                                  (schedule/gaps-stream (schedule/streams 5) :power) 20)))
+        cap      (* 1000000000 power/max-outage-s)]
+    (is (some #(< cap %) (take-nth 2 usual)))
+    (is (every? #(<= % cap) (take-nth 2 actual)))
+    (is (= (vec (take-nth 2 (rest usual)))
+           (vec (take-nth 2 (rest actual)))))
+    (is (= actual (vec (take 100 (power/gaps (schedule/streams 5) settings)))))))
+
 (deftest store
   (is (db/lazyfs-store? {:faults #{:power}}))
   (is (not (db/lazyfs-store? {:faults #{:kill}})))
