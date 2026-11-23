@@ -290,6 +290,15 @@
                                           " when both run.")
     :parse-fn partition/parse-duration
     :validate [(fn [[lo hi]] (and lo hi (< 0 lo) (<= lo hi))) "Must be S or MIN-MAX, 0 < MIN <= MAX"]]
+   [nil "--kill-duration SECONDS" (str "Override --process-duration for kill-to-restart gaps,"
+                                       " leaving pause-to-resume gaps unchanged.")
+    :parse-fn partition/parse-duration
+    :validate [(fn [[lo hi]] (and lo hi (< 0 lo) (<= lo hi))) "Must be S or MIN-MAX, 0 < MIN <= MAX"]]
+   [nil "--network-interval SECONDS" (str "Whole seconds from healing a network fault to its next"
+                                          " injection, or between flash disconnects; MIN-MAX draws"
+                                          " uniformly per gap. The active fault duration is unchanged.")
+    :parse-fn partition/parse-duration
+    :validate [(fn [[lo hi]] (and lo hi (< 0 lo) (<= lo hi))) "Must be S or MIN-MAX, 0 < MIN <= MAX"]]
    [nil "--kill-signal SIGNAL" (str "How a kill stops fnn: kill (SIGKILL, a crash) or term (SIGTERM, a"
                                     " graceful shutdown, checked to finish within --term-grace).")
     :default  :kill

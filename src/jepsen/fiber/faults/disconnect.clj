@@ -148,5 +148,8 @@
    :stream  :disconnect
    :package package
    :ops     ops
+   :gaps    (fn [streams opts]
+              (schedule/network-gaps streams :disconnect opts
+                                     (some? (:disconnect-flash opts))))
    :fired   {:disconnect #{:disconnect :flash-disconnect}}
    :effect  effect})

@@ -71,11 +71,13 @@
   a stream of its own, and the gaps after each healing come from the usual gap
   stream."
   [streams opts]
-  (let [usual (schedule/gaps (schedule/gaps-stream streams :partition) (:nemesis-interval opts))]
+  (let [usual (schedule/network-gaps streams :partition opts false)]
     (if-let [[lo hi] (:partition-duration opts)]
       (let [^SplittableRandom r (schedule/stream streams :partition-duration)]
-        (interleave (repeatedly #(* 1000000000 (+ lo (.nextInt r (int (inc (- hi lo)))))))
-                    usual))
+        (interleave (schedule/ranged-gaps r [lo hi])
+                    (if (:network-interval opts)
+                      (take-nth 2 (rest usual))
+                      usual)))
       usual)))
 
 (def partition-rule

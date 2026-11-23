@@ -23,8 +23,9 @@
         (is (= name (:scenario options)))))))
 
 (deftest s1-scenarios
-  (testing "c-01a schedules a restart within 15 seconds"
-    (is (= [1 15] (:process-duration (:options (parse ["--scenario" "c-01a"]))))))
+  (testing "c-01a and c-01b schedule restarts within 1-5 seconds"
+    (doseq [name ["c-01a" "c-01b"]]
+      (is (= [1 5] (:process-duration (:options (parse ["--scenario" name])))))))
   (testing "A-B: a later --nodes overrides run.sh's"
     (doseq [name ["c-01a" "c-05"]]
       (is (= ["n1" "n2"] (:nodes (:options (parse ["--nodes" "n1,n2,n3" "--scenario" name])))))))
@@ -33,17 +34,19 @@
           b (:options (parse ["--scenario" "c-02b"]))]
       (is (= [:middle] (:kill-targets a) (:kill-targets b)))
       (is (= [:invoice] (:pay-kinds a) (:pay-kinds b)))
-      (is (= [1 15] (:process-duration a)))
-      (is (= [8 12] (:process-duration b)))
+      (is (= [1 5] (:process-duration a) (:process-duration b)))
       (is (= 20 (:nemesis-interval a) (:nemesis-interval b)))
       (is (= [:term :kill] [(:kill-signal a) (:kill-signal b)]))))
   (testing "flashes of 100 ms to 5 s"
-    (is (= [100 5000] (:disconnect-flash (:options (parse ["--scenario" "c-05"])))))))
+    (let [options (:options (parse ["--scenario" "c-05"]))]
+      (is (= [100 5000] (:disconnect-flash options)))
+      (is (= [1 5] (:network-interval options))))))
 
 (deftest c-06
   (let [{:keys [options errors]} (parse ["--scenario" "c-06"])]
     (is (empty? errors))
     (is (= [5 15] (:partition-duration options)))
+    (is (= [1 5] (:network-interval options)))
     (is (not (:force-close-ok options)))))
 
 (deftest c-03
@@ -51,7 +54,7 @@
     (is (empty? errors))
     (is (= [:outage] (:faults options)))
     (is (= [:middle] (:outage-targets options)))
-    (is (= [5 15] (:outage-duration options)))
+    (is (= [1 5] (:outage-duration options)))
     (is (< (second (:outage-duration options)) 30))
     (is (= 34200 (:outage-jump options)))
     (is (:expiry-check options))
@@ -59,7 +62,7 @@
 
 (deftest c-04
   (let [{:keys [options]} (parse ["--scenario" "c-04"])]
-    (is (= [1 15] (:process-duration options)))
+    (is (= [1 5] (:process-duration options)))
     (is (= 30 (:nemesis-interval options)))))
 
 (deftest c-16
@@ -72,10 +75,16 @@
       (is (= 6 (count (:nodes options)))))
     (testing "kills, pauses, partitions and clock steps under fnn's 30 s deadline; closes fail the run"
       (is (< (second (:process-duration options)) 30))
+      (is (= [1 5] (:kill-duration options)))
+      (is (= [5 20] (:process-duration options)))
+      (is (= [1 5] (:network-interval options)))
       (is (< (second (:partition-duration options)) 30))
       (is (< (second (:clock-jump options)) 30))
       (is (not (:force-close-ok options)))
       (is (nil? (:force-close-ok-after options))))
+    (testing "network-only scenarios use a 1-5 s post-heal interval"
+      (doseq [name ["c-05" "c-06" "c-07" "c-09" "c-10"]]
+        (is (= [1 5] (:network-interval (:options (parse ["--scenario" name])))))))
     (testing "the narrower rule can be added"
       (is (= 30 (:force-close-ok-after (:options (parse ["--scenario" "c-16"
                                                          "--force-close-ok-after" "30"]))))))))

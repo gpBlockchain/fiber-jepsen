@@ -65,4 +65,5 @@
    :stream  :packet
    :package nc/packet-package
    :ops     ops
+   :gaps    (fn [streams opts] (schedule/network-gaps streams :packet opts false))
    :fired   {:packet #{:start-packet}}})

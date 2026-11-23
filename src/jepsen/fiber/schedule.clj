@@ -81,6 +81,25 @@
     #(long (* 1e9 (min max-gap-s
                        (* (- (double mean-s)) (Math/log (- 1.0 (.nextDouble r)))))))))
 
+(defn ranged-gaps
+  "Endless whole-second gaps drawn uniformly from [lo hi]."
+  [^SplittableRandom r [lo hi]]
+  (repeatedly #(* 1000000000 (+ lo (.nextInt r (int (inc (- hi lo))))))))
+
+(defn network-gaps
+  "For paired network faults, keep the original fault duration and use
+  :network-interval only from healing to the next injection. For flash faults,
+  every gap is between injections. Without the option, preserve the old gaps."
+  [streams stream-key opts flash?]
+  (let [usual (gaps (gaps-stream streams stream-key) (:nemesis-interval opts))]
+    (if-let [interval (:network-interval opts)]
+      (let [between (ranged-gaps (stream streams (keyword (str (name stream-key) "-network-interval")))
+                                 interval)]
+        (if flash?
+          between
+          (interleave (take-nth 2 usual) between)))
+      usual)))
+
 (defrecord Paced [gaps next-time gen]
   gen/Generator
   (op [_ test ctx]

@@ -7,7 +7,8 @@
   (:require [clojure.string :as str]
             [clojure.tools.logging :refer [warn]]
             [jepsen.nemesis :as n]
-            [jepsen.fiber.cch :as cch]))
+            [jepsen.fiber.cch :as cch]
+            [jepsen.fiber.schedule :as schedule]))
 
 (defn- try-op
   "(f), or a short failure string: the nemesis must not crash on an SSH error."
@@ -51,6 +52,13 @@
   (cycle [{:type :info, :f :kill-cch}
           {:type :info, :f :start-cch}]))
 
+(defn gaps
+  "CCH restarts 1-5 seconds after a kill; the next kill keeps the usual gap."
+  [streams opts]
+  (interleave (schedule/ranged-gaps (schedule/stream streams :cch-kill-duration) [1 5])
+              (schedule/gaps (schedule/gaps-stream streams :cch-kill)
+                             (:nemesis-interval opts))))
+
 (defn effect
   "Whether a :kill-cch completion took effect (see jepsen.fiber.faults): not
   when the kill failed, which the nemesis records as a \"failed: ...\" string."
@@ -64,5 +72,6 @@
    :stream  :cch-kill
    :package package
    :ops     ops
+   :gaps    gaps
    :fired   {:cch-kill #{:kill-cch}}
    :effect  effect})

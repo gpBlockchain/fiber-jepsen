@@ -115,4 +115,18 @@
         (is (= (take 20 usual) (take-nth 2 (rest gs))))))
     (testing "the option parses"
       (is (= [5 15] (:process-duration (:options (cli/parse-opts ["--process-duration" "5-15"] fiber/cli-opts)))))
-      (is (seq (:errors (cli/parse-opts ["--process-duration" "15-5"] fiber/cli-opts)))))))
+      (is (seq (:errors (cli/parse-opts ["--process-duration" "15-5"] fiber/cli-opts)))))
+    (testing "kill duration overrides pauses without shortening them"
+      (let [o  (assoc opts :process-duration [5 20], :kill-duration [1 5])
+            fs (map :f (ops o))
+            gs (take-nth 2 (gaps o))]
+        (is (= #{:kill :pause} (set (take-nth 2 fs))))
+        (doseq [[f g] (map vector (take-nth 2 fs) gs)]
+          (if (= :kill f)
+            (is (<= 1e9 g 5e9))
+            (is (<= 5e9 g 20e9))))))
+    (testing "kill and network ranges parse"
+      (let [{:keys [options errors]} (cli/parse-opts ["--kill-duration" "1-5"
+                                                     "--network-interval" "1-5"] fiber/cli-opts)]
+        (is (empty? errors))
+        (is (= [1 5] (:kill-duration options) (:network-interval options)))))))

@@ -84,6 +84,24 @@
              (cons op (step (if (faulted mode) (disj faulted mode) (conj faulted mode)))))))
        #{}))))
 
+(defn selected-ops
+  "Build this fault's seeded operation stream from test options."
+  [r opts]
+  (let [faults  (set (:faults opts))
+        middles (middle-nodes opts)]
+    (when (and (faults :kill) (some #{:middle} (:kill-targets opts)) (empty? middles))
+      (throw (ex-info (str "--kill-targets middle: no node in topology "
+                           (name (:topology opts :line)) " is on more than one channel")
+                      {:type :no-middle-node, :nodes (:nodes opts)})))
+    (ops r (vec (:nodes opts))
+         {:kill?         (faults :kill)
+          :pause?        (faults :pause)
+          :kill-targets  (:kill-targets opts)
+          :pause-targets [:one]
+          :middles       middles
+          :paired?       (or (some? (:process-duration opts))
+                             (some? (:kill-duration opts)))})))
+
 (defn gaps
   "The gaps in ns between this fault's ops. Without :process-duration, every
   fault's gaps. With it ([min max] seconds), the ops pair up (see `ops`), each
@@ -91,10 +109,19 @@
   and the gaps after each recovery come from the usual gap stream."
   [streams opts]
   (let [usual (schedule/gaps (schedule/gaps-stream streams :db) (:nemesis-interval opts))]
-    (if-let [[lo hi] (:process-duration opts)]
-      (let [^java.util.SplittableRandom r (schedule/stream streams :process-duration)]
-        (interleave (repeatedly #(* 1000000000 (+ lo (.nextInt r (int (inc (- hi lo)))))))
-                    usual))
+    (if-let [base (or (:process-duration opts) (:kill-duration opts))]
+      (let [base-gaps (schedule/ranged-gaps (schedule/stream streams :process-duration) base)
+            durations (if-let [kill-range (:kill-duration opts)]
+                        (let [ops-copy (selected-ops
+                                         (schedule/stream (schedule/streams (:seed streams)) :db)
+                                         opts)
+                              modes     (map :f (take-nth 2 ops-copy))
+                              kill-gaps (schedule/ranged-gaps
+                                          (schedule/stream streams :kill-duration) kill-range)]
+                          (map (fn [mode b k] (if (= :kill mode) k b))
+                               modes base-gaps kill-gaps))
+                        base-gaps)]
+        (interleave durations usual))
       usual)))
 
 (defn term-exits
@@ -162,20 +189,7 @@
   {:faults  #{:kill :pause}
    :stream  :db
    :package nc/db-package
-   :ops     (fn [r opts]
-              (let [faults  (set (:faults opts))
-                    middles (middle-nodes opts)]
-                (when (and (faults :kill) (some #{:middle} (:kill-targets opts)) (empty? middles))
-                  (throw (ex-info (str "--kill-targets middle: no node in topology "
-                                       (name (:topology opts :line)) " is on more than one channel")
-                                  {:type :no-middle-node, :nodes (:nodes opts)})))
-                (ops r (vec (:nodes opts))
-                     {:kill?         (faults :kill)
-                      :pause?        (faults :pause)
-                      :kill-targets  (:kill-targets opts)
-                      :pause-targets [:one]
-                      :middles       middles
-                      :paired?       (some? (:process-duration opts))})))
+   :ops     selected-ops
    :gaps    gaps
    :checker (fn [opts]
               (when (and (some #{:kill} (:faults opts)) (= :term (:kill-signal opts)))

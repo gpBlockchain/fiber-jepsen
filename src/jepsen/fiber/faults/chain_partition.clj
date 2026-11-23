@@ -113,4 +113,5 @@
    :stream  :chain-partition
    :package package
    :ops     ops
+   :gaps    (fn [streams opts] (schedule/network-gaps streams :chain-partition opts false))
    :fired   {:chain-partition #{:start-chain-partition}}})

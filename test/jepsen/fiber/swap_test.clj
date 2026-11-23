@@ -212,7 +212,9 @@
 (deftest swap-faults
   (testing "each kill of CCH is followed by its restart"
     (is (= (take 6 (cycle [:kill-cch :start-cch]))
-           (map :f (take 6 (cch-kill/ops nil {}))))))
+           (map :f (take 6 (cch-kill/ops nil {})))))
+    (let [gaps (take 20 (cch-kill/gaps (schedule/streams 4) {:nemesis-interval 20}))]
+      (is (every? #(<= 1e9 % 5e9) (take-nth 2 gaps)))))
   (testing "lnd-disconnect draws its links and heals each cut"
     (let [ops (take 200 (lnd-disconnect/ops (schedule/stream (schedule/streams 4) :lnd-disconnect)
                                             {:lnd-disconnect-targets [:cch :peer]

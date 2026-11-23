@@ -6,7 +6,9 @@
             [jepsen.fiber [client :as client]
                           [faults :as faults]
                           [schedule :as schedule]]
-            [jepsen.fiber.faults [disconnect :as disconnect]
+            [jepsen.fiber.faults [chain-partition :as chain-partition]
+                                 [disconnect :as disconnect]
+                                 [packet :as packet]
                                  [partition :as partition]
                                  [process :as process]]))
 
@@ -90,6 +92,29 @@
           (is (= shorter same) (str fs))))
       (testing "while the times differ"
         (is (not= (map :time a) (map :time b)))))))
+
+(deftest network-interval-gaps
+  (let [o      (assoc opts :network-interval [1 5])
+        before (vec (take 60 (schedule/network-gaps (schedule/streams 7) :packet opts false)))
+        after  (vec (take 60 (schedule/network-gaps (schedule/streams 7) :packet o false)))
+        flash  (vec (take 60 (schedule/network-gaps (schedule/streams 7) :disconnect o true)))]
+    (is (= (take-nth 2 before) (take-nth 2 after)) "active fault durations stay unchanged")
+    (is (every? #(<= 1e9 % 5e9) (take-nth 2 (rest after))))
+    (is (every? #(<= 1e9 % 5e9) flash))
+    (is (= after (vec (take 60 (schedule/network-gaps (schedule/streams 7) :packet o false)))))
+    (is (= before (vec (take 60 (schedule/gaps
+                                   (schedule/gaps-stream (schedule/streams 7) :packet) 15))))))
+  (let [o    (assoc opts :partition-duration [5 15], :network-interval [1 5])
+        gaps (vec (take 40 (partition/gaps (schedule/streams 9) o)))]
+    (is (every? #(<= 5e9 % 15e9) (take-nth 2 gaps)))
+    (is (every? #(<= 1e9 % 5e9) (take-nth 2 (rest gaps)))))
+  (let [o (assoc opts :network-interval [1 5])]
+    (doseq [fault [disconnect/fault packet/fault chain-partition/fault]]
+      (let [gaps (take 40 ((:gaps fault) (schedule/streams 9) o))]
+        (is (every? #(<= 1e9 % 5e9) (take-nth 2 (rest gaps))))))
+    (let [flash (take 40 ((:gaps disconnect/fault) (schedule/streams 9)
+                          (assoc o :disconnect-flash [100 5000])))]
+      (is (every? #(<= 1e9 % 5e9) flash)))))
 
 (deftest payments
   (let [ps (take 200 (schedule/payments (:pay (schedule/streams 1)) 3))]
